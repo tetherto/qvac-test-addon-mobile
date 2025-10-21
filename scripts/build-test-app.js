@@ -254,8 +254,9 @@ function getInstalledPackageName(addonSource, isLocalPath) {
     // Handle scoped packages (@scope/name@version)
     if (addonSource.startsWith('@')) {
       // Scoped package: @scope/name or @scope/name@version
-      // nameWithoutVersion[0] is 'scope/name', nameWithoutVersion[1] is version (if present)
-      return `@${nameWithoutVersion[0]}`
+      return nameWithoutVersion.length > 2 
+        ? `@${nameWithoutVersion[0]}/${nameWithoutVersion[1]}`
+        : `@${nameWithoutVersion[0]}/${nameWithoutVersion[1]}`
     } else {
       // Unscoped package: name or name@version
       return nameWithoutVersion[0]
