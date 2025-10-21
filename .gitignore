@@ -19,7 +19,7 @@ tmp/
 backend/backend.cjs
 backend/*.bundle
 testAssets
-app/testConfig.js
 app/assetManifest.js
 e2e/bun.lock
 bun.lock
+app/testConfig.js
