@@ -1,7 +1,8 @@
 {
   "private": true,
-  "name": "bare-expo",
-  "description": "Example of embedding Bare in an Expo application",
+  "name": "qvac-test-addon-mobile",
+  "description": "Mobile testing template for QVAC native addons on iOS and Android",
+  "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
     "bundle": "scripts/bundle.sh",
@@ -13,14 +14,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/holepunchto/bare-expo.git"
+    "url": "git+https://github.com/tetherto/qvac-addon-mobile-tester.git"
   },
-  "author": "Holepunch",
+  "author": "Tether",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/holepunchto/bare-expo/issues"
+    "url": "https://github.com/tetherto/qvac-addon-mobile-tester/issues"
   },
-  "homepage": "https://github.com/holepunchto/bare-expo#readme",
+  "homepage": "https://github.com/tetherto/qvac-addon-mobile-tester#readme",
   "dependencies": {
     "@qvac/llm-llamacpp": "/Users/ishanvohra/Tether/addons/qvac-lib-infer-llamacpp-llm/qvac-llm-llamacpp-0.3.1.tgz",
     "@tetherto/qvac-lib-dl-filesystem": "^1.1.0",

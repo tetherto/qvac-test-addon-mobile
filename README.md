@@ -7,9 +7,20 @@ A template project for testing native addons on mobile platforms (iOS and Androi
 
 This is a React Native + Bare runtime application that:
 - Loads addon test code from the addon's `test/mobile/test.cjs` file
-- Automatically initializes and runs tests via the `startTest()` function
-- Provides RPC communication between React Native UI and Bare backend
+- Automatically initializes and runs individual test functions via RPC
+- Provides isolated test execution with pass/fail reporting for each test
+- Handles asset loading and management automatically
 - Includes WebDriverIO e2e tests for CI/CD integration
+
+## Features
+
+✨ **Flexible Addon Installation**: Supports local directories, .tgz files, and published npm packages  
+🧪 **Independent Test Execution**: Each test function runs in isolation with individual PASS/FAIL reporting  
+📦 **Automatic Asset Management**: Handles mobile asset bundling and path resolution  
+🔧 **Auto-Generated E2E Tests**: Creates WebDriverIO tests for each test function  
+🚀 **Zero Configuration**: Just provide a `test/mobile/test.cjs` file and go  
+📱 **Cross-Platform**: Works on both iOS and Android  
+🔄 **Hot Reload Ready**: Rebuild and redeploy quickly during development
 
 ## Architecture
 
@@ -17,15 +28,18 @@ This is a React Native + Bare runtime application that:
 ┌─────────────────────┐
 │   React Native UI   │  (app/index.js)
 │   - Displays status │
-│   - Triggers tests  │
+│   - Shows results   │
+│   - Loads assets    │
 └──────────┬──────────┘
            │ RPC (bare-rpc)
-           │ Commands: INIT, START_TEST
+           │ Commands: INIT, RUN_TEST
 ┌──────────▼──────────┐
 │   Bare Backend      │  (backend/backend.cjs)
-│   - init()          │  Static: sets dirPath
-│   - startTest()     │  <- Injected from addon's test/mobile/test.cjs
-│                     │     (contains all test logic)
+│   - init()          │  Static: sets dirPath & assetPaths
+│   - getAssetPath()  │  Helper: resolves asset URIs
+│   - testFunction1() │  ← Injected from addon's test/mobile/test.cjs
+│   - testFunction2() │     (each test function runs independently)
+│   - testFunctionN() │
 └─────────────────────┘
 ```
 
@@ -36,6 +50,23 @@ This is a React Native + Bare runtime application that:
 - For iOS: Xcode, CocoaPods
 - An addon with `test/mobile/test.cjs` file
 
+## How It Works
+
+1. **Build Time**: The build script extracts all `async function` declarations from your addon's `test/mobile/test.cjs` file and generates:
+   - Backend code with injected test functions
+   - Test configuration with function names
+   - Asset manifest for file loading
+   - E2E test cases for each function
+
+2. **Runtime**: When the app launches:
+   - React Native UI loads and initializes assets
+   - Backend initializes with `dirPath` and asset paths
+   - Each test function runs independently via RPC
+   - Results display as "testName: PASS" or "testName: FAIL"
+   - Tests continue even if one fails
+
+3. **E2E Testing**: WebDriverIO checks for PASS/FAIL text for each test function
+
 ## Quick Start
 
 ### 1. Build the Test App
@@ -43,13 +74,29 @@ This is a React Native + Bare runtime application that:
 From the template project root:
 
 ```bash
-npm run build ../path-to-addon
+npm run build <addon-source>
 ```
 
-For example, to test the embeddings addon:
+The build command supports multiple input formats:
 
+**Local directory:**
 ```bash
-npm run build ../qvac-lib-infer-llamacpp-embed
+npm run build ../qvac-lib-infer-llamacpp-llm
+```
+
+**Local .tgz file:**
+```bash
+npm run build ../qvac-llm-llamacpp-0.3.1.tgz
+```
+
+**Published npm package:**
+```bash
+npm run build @qvac/llm-llamacpp
+```
+
+**Published package with version:**
+```bash
+npm run build @qvac/llm-llamacpp@0.3.1
 ```
 
 This script will:
@@ -57,6 +104,9 @@ This script will:
 - ✅ Install the addon package
 - ✅ Install test dependencies (from addon's devDependencies)
 - ✅ Generate `backend/backend.cjs` with injected test logic
+- ✅ Generate `app/testConfig.js` with list of test functions
+- ✅ Generate `app/assetManifest.js` for asset loading
+- ✅ Generate `e2e/tests/app.test.js` with individual test cases
 - ✅ Bundle the app using `bare-pack`
 
 ### 2. Run on Device/Simulator
@@ -72,11 +122,12 @@ npm run ios
 ```
 
 The app will automatically:
-1. Initialize (set dirPath for test assets)
-2. Run the test via `startTest()` function
-3. Display test results and status updates
+1. Initialize (set dirPath and load asset mappings)
+2. Run each test function individually
+3. Display results for each test as: "testName: PASS" or "testName: FAIL"
+4. Show detailed error messages for failed tests
 
-If any error occurs, it will display: "Error: [error message]"
+Each test function runs independently, so one failure doesn't stop others from running.
 
 ## Creating Tests for Your Addon
 
@@ -90,29 +141,46 @@ In your addon repository, create `test/mobile/test.cjs`:
 const YourAddon = require('@your-org/your-addon')
 // Import other dependencies needed for testing
 
-// Module-level variables
+// Module-level variables (shared across tests)
 let modelInstance = null
 
 /**
- * Main test function - this is the required entry point
- * The global variable 'dirPath' is available and points to testAssets directory
- * @returns {Promise<string>}
+ * Test 1: Load and initialize the model
+ * The global variable 'dirPath' points to testAssets directory
+ * The global function 'getAssetPath(filename)' resolves asset URIs
  */
-async function startTest() {
+async function testLoadModel() {
   try {
-    // Step 1: Load the model
     console.log('Starting model load...')
     console.log('Assets directory:', dirPath)
     
+    // Use getAssetPath() to get the correct path for assets
+    const modelPath = getAssetPath('model.gguf')
+    
     modelInstance = new YourAddon({
-      diskPath: dirPath,
+      modelPath: modelPath,
       // other configuration
     })
     
     await modelInstance.load()
     console.log('Model loaded successfully')
     
-    // Step 2: Run inference with hardcoded test input
+    return 'Model loaded successfully'
+  } catch (error) {
+    console.error('Load model test failed:', error)
+    throw new Error(`Failed to load model: ${error.message}`)
+  }
+}
+
+/**
+ * Test 2: Run inference with the loaded model
+ */
+async function testInference() {
+  try {
+    if (!modelInstance) {
+      throw new Error('Model not loaded - run testLoadModel first')
+    }
+    
     console.log('Starting model inference...')
     const testInput = 'your test input'
     const result = await modelInstance.run(testInput)
@@ -123,34 +191,39 @@ async function startTest() {
     }
     
     console.log('Inference result:', result)
+    return `Inference completed: ${result}`
+  } catch (error) {
+    console.error('Inference test failed:', error)
+    throw new Error(`Inference failed: ${error.message}`)
+  }
+}
+
+/**
+ * Test 3: Cleanup and unload
+ */
+async function testUnloadModel() {
+  try {
+    if (!modelInstance) {
+      throw new Error('Model not loaded')
+    }
     
-    // Step 3: Cleanup and unload
     console.log('Unloading model...')
     await modelInstance.unload()
     modelInstance = null
     console.log('Model unloaded successfully')
     
-    // Return success message
-    return 'TEST COMPLETE: Model loaded, ran inference, and unloaded successfully'
-    
+    return 'Model unloaded successfully'
   } catch (error) {
-    console.error('Test failed:', error)
-    throw new Error(`Test failed: ${error.message}`)
+    console.error('Unload test failed:', error)
+    throw new Error(`Failed to unload: ${error.message}`)
   }
 }
 
-// You can define multiple test functions and call them from startTest()
-async function testMultipleScenarios() {
-  // Run multiple test scenarios
-  const results = []
-  results.push(await testScenario1())
-  results.push(await testScenario2())
-  return results.join('\n')
-}
-
-// Export is optional - the build script extracts the code
+// Export is optional - the build script extracts all async functions
 module.exports = {
-  startTest
+  testLoadModel,
+  testInference,
+  testUnloadModel
 }
 ```
 
@@ -201,12 +274,14 @@ npm run test:ios
 
 ### What the E2E Test Does
 
-The test (`e2e/tests/app.test.js`):
+The test file (`e2e/tests/app.test.js`) is auto-generated and:
 1. Launches the app
-2. Finds the text element with `testID="text"`
-3. Waits for "INITIALIZED" status
-4. Waits for test completion (status from your `startTest()` return value)
-5. Fails if any error message is displayed
+2. Waits for "INITIALIZED" status
+3. Creates individual test cases for each test function
+4. Checks for "testName: PASS" or "testName: FAIL" for each test
+5. Fails if any test shows "FAIL"
+
+The test file is regenerated every time you run `npm run build` to match your addon's test functions.
 
 ### CI/CD Integration
 
@@ -227,8 +302,12 @@ npm run android  # builds APK
 qvac-addon-mobile-tester/
 ├── app/
 │   ├── index.js              # Main React Native app
-│   └── hooks/
-│       └── useWorklet.js     # Bare worklet hook for RPC
+│   ├── assetManifest.js      # Generated: asset file mappings
+│   ├── testConfig.js         # Generated: list of test functions
+│   ├── hooks/
+│   │   └── useWorklet.js     # Bare worklet hook for RPC
+│   └── utils/
+│       └── assetLoader.js    # Asset loading utilities
 ├── backend/
 │   ├── backend.cjs           # Generated: contains injected test logic
 │   ├── api.cjs               # RPC command constants
@@ -236,7 +315,7 @@ qvac-addon-mobile-tester/
 ├── e2e/
 │   ├── package.json
 │   └── tests/
-│       ├── app.test.js       # WebDriverIO test
+│       ├── app.test.js       # Generated: WebDriverIO tests
 │       ├── wdio.config.android.js
 │       └── wdio.config.ios.js
 ├── scripts/
@@ -254,16 +333,22 @@ The `scripts/build-test-app.js` script performs these steps:
 1. **Install Addon**: Packs (if directory) and installs the addon as npm package
 2. **Get Package Name**: Extracts the package name from the installed addon
 3. **Read Test Code**: Reads `test/mobile/test.cjs` from node_modules
-4. **Extract Logic**: Removes `module.exports` and extracts the test functions
-5. **Extract Dependencies**: Parses `require()` statements to find test dependencies
-6. **Install Test Dependencies**: Installs dependencies from addon's `devDependencies` or `dependencies`
-7. **Generate Backend**: Creates `backend/backend.cjs` with:
-   - Static `init()` function (sets global `dirPath`)
-   - Injected test logic (including your `startTest()` function)
-   - RPC request handlers (handleInit, handleStartTest)
-   - Command routing (INIT, START_TEST)
-8. **Copy Assets**: Copies `test/mobile/testAssets/` to project root if it exists
-9. **Bundle**: Runs `bare-pack` to create the final app bundle
+4. **Extract Logic**: Removes `module.exports` and extracts all test functions
+5. **Extract Test Functions**: Identifies all `async function` declarations (except `init`)
+6. **Extract Dependencies**: Parses `require()` statements to find test dependencies
+7. **Install Test Dependencies**: Installs dependencies from addon's `devDependencies` or `dependencies`
+8. **Generate Backend**: Creates `backend/backend.cjs` with:
+   - Static `init()` function (sets global `dirPath` and `assetPaths`)
+   - Helper `getAssetPath()` function for asset resolution
+   - Injected test logic (all your test functions)
+   - RPC request handlers (handleInit, handleRunTest)
+   - Command routing (INIT, RUN_TEST)
+   - Test function map for individual execution
+9. **Copy Assets**: Copies `test/mobile/testAssets/` to project root if it exists
+10. **Generate Asset Manifest**: Creates `app/assetManifest.js` with asset file mappings
+11. **Generate Test Config**: Creates `app/testConfig.js` with list of test function names
+12. **Generate E2E Tests**: Creates `e2e/tests/app.test.js` with individual test cases
+13. **Bundle**: Runs `bare-pack` to create the final app bundle
 
 ## Troubleshooting
 
@@ -296,41 +381,122 @@ The `scripts/build-test-app.js` script performs these steps:
 
 ### Custom Test Timing
 
-The app has a 3-second delay before INIT and 5-second delay before START_TEST. To modify:
+The app has a 3-second delay before INIT and 2-second delay before running tests. To modify:
 
 Edit `app/index.js`:
 ```javascript
+// Delay before initialization
 setTimeout(() => {
   init()
 }, 3000) // Change this value
 
+// Delay before running tests (inside init function)
 setTimeout(() => {
-  startTest()
-}, 5000) // Change this value
+  runAllTests()
+}, 2000) // Change this value
 ```
 
 ### Multiple Test Scenarios
 
-To test multiple scenarios, define multiple test functions in your `test/mobile/test.cjs` and call them from `startTest()`:
+Each `async function` you define in `test/mobile/test.cjs` becomes an independent test:
 
 ```javascript
-async function startTest() {
-  const results = []
-  results.push(await testScenario1())
-  results.push(await testScenario2())
-  results.push(await testScenario3())
-  return results.join('\n')
+// Each function runs independently and shows PASS/FAIL
+async function testScenario1() {
+  // Test code here
+  return 'Scenario 1 completed'
+}
+
+async function testScenario2() {
+  // Test code here
+  return 'Scenario 2 completed'
+}
+
+async function testScenario3() {
+  // Test code here
+  return 'Scenario 3 completed'
 }
 ```
 
+Tests run in the order they are defined. If one test fails, the others will still run.
+
 ### Accessing Test Assets
 
-The global `dirPath` variable is available in your test code and points to the testAssets directory:
+Two global helpers are available for accessing test assets:
+
+1. **`dirPath`**: The testAssets directory path
+2. **`getAssetPath(filename)`**: Resolves the actual file path for an asset
 
 ```javascript
-async function startTest() {
-  console.log('Assets are in:', dirPath)
-  // Use dirPath to access model files, data, etc.
+async function testLoadModel() {
+  // Get the directory path
+  console.log('Assets directory:', dirPath)
+  
+  // Get the actual path for a specific asset file
+  const modelPath = getAssetPath('model.gguf')
+  const configPath = getAssetPath('config.json')
+  
+  // Use the paths with your addon
+  const model = new YourAddon({ modelPath })
+  await model.load()
+}
+```
+
+**Why use `getAssetPath()`?** On mobile platforms, assets are bundled into the app and may be at different locations than the project structure suggests. The `getAssetPath()` function ensures you get the correct runtime path.
+
+### Best Practices for Test Functions
+
+**1. Keep tests focused and granular:**
+```javascript
+// ✅ Good - each test has a single purpose
+async function testLoadModel() { /* ... */ }
+async function testInference() { /* ... */ }
+async function testUnload() { /* ... */ }
+
+// ❌ Bad - one massive test doing everything
+async function testEverything() { /* load, infer, unload all in one */ }
+```
+
+**2. Use descriptive test names:**
+```javascript
+// ✅ Good - clear what the test does
+async function testModelLoadsWithLargeContext() { /* ... */ }
+
+// ❌ Bad - vague
+async function test1() { /* ... */ }
+```
+
+**3. Return meaningful success messages:**
+```javascript
+// ✅ Good
+return `Processed ${result.tokens} tokens in ${elapsed}ms`
+
+// ❌ Bad
+return 'ok'
+```
+
+**4. Throw descriptive errors:**
+```javascript
+// ✅ Good
+throw new Error(`Expected 128 tokens but got ${actual}`)
+
+// ❌ Bad
+throw new Error('failed')
+```
+
+**5. Use module-level variables for shared state:**
+```javascript
+// ✅ Good - share instances across tests
+let modelInstance = null
+
+async function testLoad() {
+  modelInstance = new Model()
+  await modelInstance.load()
+}
+
+async function testInference() {
+  if (!modelInstance) throw new Error('Model not loaded')
+  return await modelInstance.run('test')
 }
 ```
 
@@ -339,8 +505,20 @@ async function startTest() {
 The template intentionally has minimal UI. To add buttons or controls:
 
 1. Edit `app/index.js` to add React Native components
-2. Create functions that call RPC methods (INIT, START_TEST)
+2. Create functions that call RPC methods (INIT, RUN_TEST)
 3. Update e2e tests accordingly
+
+Example:
+```javascript
+import { Button } from 'react-native'
+import { RUN_TEST } from '../backend/api.cjs'
+
+// Add a button to run a specific test
+<Button 
+  title="Run Test"
+  onPress={() => runTest('testLoadModel')}
+/>
+```
 
 ## Contributing
 
@@ -360,13 +538,14 @@ We welcome contributions to improve this mobile testing template!
 When adding support for new addons:
 
 1. Create `test/mobile/test.cjs` in your addon repository
-2. Define a `startTest()` async function as the main entry point
-3. Use the global `dirPath` variable to access testAssets
+2. Define multiple `async function` declarations for different test scenarios
+3. Use the global `dirPath` and `getAssetPath()` helpers for accessing testAssets
 4. Use hardcoded test inputs (no user interaction)
-5. Return a descriptive status string (e.g., "TEST COMPLETE: All tests passed")
-6. Throw descriptive errors with `Error()` constructor
+5. Each test function should return a descriptive status string (e.g., "Model loaded successfully")
+6. Throw descriptive errors with `Error()` constructor for failures
 7. Optionally add `test/mobile/testAssets/` for model files or test data
 8. Test with this template using `npm run build ../your-addon`
+9. Each test function will be executed independently and show PASS/FAIL results
 
 ## Related Documentation
 
@@ -378,5 +557,6 @@ When adding support for new addons:
 ## License
 
 Apache-2.0
+
 
 
