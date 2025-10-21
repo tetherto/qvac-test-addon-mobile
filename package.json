@@ -1,0 +1,55 @@
+{
+  "private": true,
+  "name": "bare-expo",
+  "description": "Example of embedding Bare in an Expo application",
+  "main": "expo-router/entry",
+  "scripts": {
+    "bundle": "scripts/bundle.sh",
+    "build": "node scripts/build-test-app.js",
+    "android": "bun run bundle && expo run:android",
+    "ios": "bun run bundle && expo run:ios",
+    "barelog": "adb logcat '*:S bare:*'",
+    "start": "expo start"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holepunchto/bare-expo.git"
+  },
+  "author": "Holepunch",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/holepunchto/bare-expo/issues"
+  },
+  "homepage": "https://github.com/holepunchto/bare-expo#readme",
+  "dependencies": {
+    "@qvac/llm-llamacpp": "/Users/ishanvohra/Tether/addons/qvac-lib-infer-llamacpp-llm/qvac-llm-llamacpp-0.3.1.tgz",
+    "@tetherto/qvac-lib-dl-filesystem": "^1.1.0",
+    "@tetherto/qvac-lib-dl-hyperdrive": "^2.2.2",
+    "b4a": "^1.6.7",
+    "bare-rpc": "^0.2.13",
+    "corestore": "^7.4.7",
+    "expo": "~54.0.0",
+    "expo-asset": "^12.0.9",
+    "expo-build-properties": "^1.0.9",
+    "expo-constants": "^18.0.9",
+    "expo-linking": "^8.0.8",
+    "expo-router": "^6.0.8",
+    "expo-system-ui": "^6.0.7",
+    "hyperswarm": "^4.14.2",
+    "quickbit-native": "^2.2.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "^0.81.4",
+    "react-native-b4a": "^0.0.4",
+    "react-native-bare-kit": "^0.9.3",
+    "react-native-safe-area-context": "^5.4.0",
+    "simdle-native": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.3",
+    "bare-pack": "^1.4.7",
+    "prettier": "^3.3.3",
+    "prettier-config-standard": "^7.0.0",
+    "typescript": "^5.3.3"
+  }
+}
