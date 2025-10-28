@@ -220,8 +220,8 @@ function extractTestFunctions(testCode) {
   
   while ((match = functionRegex.exec(testCode)) !== null) {
     const functionName = match[1]
-    // Only exclude init - we want all actual test functions
-    if (functionName !== 'init') {
+    // Exclude init and helper functions (starting with _)
+    if (functionName !== 'init' && !functionName.startsWith('_')) {
       functions.push(functionName)
     }
   }

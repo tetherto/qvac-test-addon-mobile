@@ -52,32 +52,44 @@ const withOpenCLBuildGradle = (config) => {
     const buildGradleContent = config.modResults.contents;
     
     // Check if the exclusion already exists
-    if (!buildGradleContent.includes('excludes += "/lib/**/libOpenCL.so"')) {
-      // Find the packagingOptions jniLibs block and add the exclusion
-      const jniLibsRegex = /(jniLibs\s*{\s*useLegacyPackaging[^}]*)/;
+    if (buildGradleContent.includes('excludes += "/lib/**/libOpenCL.so"')) {
+      return config;
+    }
+    
+    // Try to find existing jniLibs block within packagingOptions and add the exclusion
+    const jniLibsBlockRegex = /(packagingOptions\s*{[\s\S]*?jniLibs\s*{[^}]*)(})/;
+    
+    if (jniLibsBlockRegex.test(buildGradleContent)) {
+      // Add excludes to existing jniLibs block
+      config.modResults.contents = buildGradleContent.replace(
+        jniLibsBlockRegex,
+        (match, before, after) => {
+          return before + '\n            excludes += "/lib/**/libOpenCL.so"' + '\n        ' + after;
+        }
+      );
+    } else {
+      // Check if packagingOptions exists but without jniLibs block
+      const packagingOptionsRegex = /(packagingOptions\s*{)([^}]*})/;
       
-      if (jniLibsRegex.test(buildGradleContent)) {
+      if (packagingOptionsRegex.test(buildGradleContent)) {
+        // Add jniLibs block to existing packagingOptions
         config.modResults.contents = buildGradleContent.replace(
-          jniLibsRegex,
-          (match) => {
-            return match + '\n            excludes += "/lib/**/libOpenCL.so"';
+          packagingOptionsRegex,
+          (match, before, content) => {
+            const jniLibsConfig = `\n        jniLibs {\n            useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)\n            excludes += "/lib/**/libOpenCL.so"\n        }\n    `;
+            return before + jniLibsConfig + content;
           }
         );
       } else {
-        // If packagingOptions doesn't exist, find android block and add it
-        const androidBlockRegex = /(android\s*{[\s\S]*?)(}\s*dependencies)/;
-        if (androidBlockRegex.test(buildGradleContent)) {
+        // No packagingOptions exists, add the entire block before the dependencies block
+        const beforeDependenciesRegex = /(android\s*{[\s\S]*?)(^\s*}\s*$[\s\S]*?dependencies\s*{)/m;
+        
+        if (beforeDependenciesRegex.test(buildGradleContent)) {
           config.modResults.contents = buildGradleContent.replace(
-            androidBlockRegex,
-            (match, before, after) => {
-              const packagingConfig = `    packagingOptions {
-        jniLibs {
-            useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)
-            excludes += "/lib/**/libOpenCL.so"
-        }
-    }
-`;
-              return before + packagingConfig + after;
+            beforeDependenciesRegex,
+            (match, androidBlock, betweenBlocks) => {
+              const packagingConfig = `    packagingOptions {\n        jniLibs {\n            useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)\n            excludes += "/lib/**/libOpenCL.so"\n        }\n    }\n`;
+              return androidBlock + packagingConfig + betweenBlocks;
             }
           );
         }

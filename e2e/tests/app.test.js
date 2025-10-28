@@ -17,10 +17,10 @@ describe('Runner', () => {
 
     //GENERATED TESTS
 
-    it('testSimpleResponse', async () => {
+    it('testTts', async () => {
         // Wait for test result to appear
-        const passText = await getElementByText('testSimpleResponse: PASS')
-        const failText = await getElementByText('testSimpleResponse: FAIL')
+        const passText = await getElementByText('testTts: PASS')
+        const failText = await getElementByText('testTts: FAIL')
         
         // Wait for either pass or fail with a generous timeout
         await driver.waitUntil(async () => {
@@ -30,32 +30,7 @@ describe('Runner', () => {
         }, {
             timeout: 30000,
             interval: 500,
-            timeoutMsg: 'Test testSimpleResponse did not complete within 30 seconds'
-        })
-        
-        // Check which one is displayed
-        const passDisplayed = await passText.isDisplayed().catch(() => false)
-        const failDisplayed = await failText.isDisplayed().catch(() => false)
-        
-        // Test should pass (not fail)
-        expect(passDisplayed).toBe(true)
-        expect(failDisplayed).toBe(false)
-    })
-
-    it('startTest', async () => {
-        // Wait for test result to appear
-        const passText = await getElementByText('startTest: PASS')
-        const failText = await getElementByText('startTest: FAIL')
-        
-        // Wait for either pass or fail with a generous timeout
-        await driver.waitUntil(async () => {
-            const passDisplayed = await passText.isDisplayed().catch(() => false)
-            const failDisplayed = await failText.isDisplayed().catch(() => false)
-            return passDisplayed || failDisplayed
-        }, {
-            timeout: 30000,
-            interval: 500,
-            timeoutMsg: 'Test startTest did not complete within 30 seconds'
+            timeoutMsg: 'Test testTts did not complete within 30 seconds'
         })
         
         // Check which one is displayed
