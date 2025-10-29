@@ -5,6 +5,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import { INIT, RUN_TEST } from '../backend/api.cjs'
 import { loadAssetPaths } from './utils/assetLoader'
 import { TEST_FUNCTIONS } from './testConfig'
+import { playAudio } from './utils/audio'
 
 const dirPath = `${FileSystem.documentDirectory.replace('file://', '')}`
 
@@ -82,7 +83,8 @@ export default function App() {
             request.send(JSON.stringify({ testName }))
             const response = await request.reply('utf8')
             const result = JSON.parse(response.toString())
-            
+            console.log('Result:', result.result)
+            handleResultData(result.result)
             if (result.success) {
                 console.log(`✅ ${testName} passed`)
                 addMessage(`${testName}: PASS`)
@@ -93,6 +95,18 @@ export default function App() {
         } catch (error) {
             console.error(`Error running test ${testName}:`, error)
             addMessage(`${testName}: FAIL - ${error.message}`)
+        }
+    }
+
+    async function handleResultData(jsonResult) {
+        if (jsonResult.audioData) {
+            try {
+                await playAudio(jsonResult.audioData)
+                addMessage('Audio playback completed')
+            } catch (error) {
+                console.error('Failed to play audio:', error)
+                addMessage(`Audio playback failed: ${error.message}`)
+            }
         }
     }
 
