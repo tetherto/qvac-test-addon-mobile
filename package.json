@@ -10,7 +10,11 @@
     "android": "bun run bundle && expo run:android",
     "ios": "bun run bundle && expo run:ios",
     "barelog": "adb logcat '*:S bare:*'",
-    "start": "expo start"
+    "start": "expo start",
+    "bare:ensureprebuilds:llamacpp": "cp -r node_modules/@tetherto/llm-llamacpp/prebuilds/android-arm64 node_modules/@tetherto/llm-llamacpp/prebuilds/android-ia32 || echo 'Warning: Failed to copy llamacpp prebuilds to android-ia32'; cp -r node_modules/@tetherto/llm-llamacpp/prebuilds/android-arm64 node_modules/@tetherto/llm-llamacpp/prebuilds/android-arm || echo 'Warning: Failed to copy llamacpp prebuilds to android-arm'; cp -r node_modules/@tetherto/llm-llamacpp/prebuilds/android-arm64 node_modules/@tetherto/llm-llamacpp/prebuilds/android-x64 || echo 'Warning: Failed to copy llamacpp prebuilds to android-x64'; cp -r node_modules/@tetherto/llm-llamacpp/prebuilds/ios-arm64 node_modules/@tetherto/llm-llamacpp/prebuilds/ios-arm64-simulator 2>/dev/null || echo 'iOS prebuilds already present'; cp -r node_modules/@tetherto/llm-llamacpp/prebuilds/ios-arm64 node_modules/@tetherto/llm-llamacpp/prebuilds/ios-x64-simulator 2>/dev/null || echo 'iOS prebuilds already present'",
+    "bare:ensureprebuilds:whispercpp": "cp -r node_modules/@tetherto/transcription-whispercpp/prebuilds/android-arm64 node_modules/@tetherto/transcription-whispercpp/prebuilds/android-ia32 || echo 'Warning: Failed to copy whispercpp prebuilds to android-ia32'; cp -r node_modules/@tetherto/transcription-whispercpp/prebuilds/android-arm64 node_modules/@tetherto/transcription-whispercpp/prebuilds/android-arm || echo 'Warning: Failed to copy whispercpp prebuilds to android-arm'; cp -r node_modules/@tetherto/transcription-whispercpp/prebuilds/android-arm64 node_modules/@tetherto/transcription-whispercpp/prebuilds/android-x64 || echo 'Warning: Failed to copy whispercpp prebuilds to android-x64'; cp -r node_modules/@tetherto/transcription-whispercpp/prebuilds/ios-arm64 node_modules/@tetherto/transcription-whispercpp/prebuilds/ios-arm64-simulator 2>/dev/null || echo 'iOS prebuilds already present'; cp -r node_modules/@tetherto/transcription-whispercpp/prebuilds/ios-arm64 node_modules/@tetherto/transcription-whispercpp/prebuilds/ios-x64-simulator 2>/dev/null || echo 'iOS prebuilds already present'",
+    "bare:ensureprebuilds:embeddings": "cp -r node_modules/@tetherto/embed-llamacpp/prebuilds/android-arm64 node_modules/@tetherto/embed-llamacpp/prebuilds/android-ia32 || echo 'Warning: Failed to copy embeddings prebuilds to android-ia32'; cp -r node_modules/@tetherto/embed-llamacpp/prebuilds/android-arm64 node_modules/@tetherto/embed-llamacpp/prebuilds/android-arm || echo 'Warning: Failed to copy embeddings prebuilds to android-arm'; cp -r node_modules/@tetherto/embed-llamacpp/prebuilds/android-arm64 node_modules/@tetherto/embed-llamacpp/prebuilds/android-x64 || echo 'Warning: Failed to copy embeddings prebuilds to android-x64'; cp -r node_modules/@tetherto/embed-llamacpp/prebuilds/ios-arm64 node_modules/@tetherto/embed-llamacpp/prebuilds/ios-arm64-simulator 2>/dev/null || echo 'iOS prebuilds already present'; cp -r node_modules/@tetherto/embed-llamacpp/prebuilds/ios-arm64 node_modules/@tetherto/embed-llamacpp/prebuilds/ios-x64-simulator 2>/dev/null || echo 'iOS prebuilds already present'",
+    "bare:ensureprebuilds:tts": "cp -r node_modules/@tetherto/tts-onnx/prebuilds/android-arm64 node_modules/@tetherto/tts-onnx/prebuilds/android-ia32 || echo 'Warning: Failed to copy tts prebuilds to android-ia32'; cp -r node_modules/@tetherto/tts-onnx/prebuilds/android-arm64 node_modules/@tetherto/tts-onnx/prebuilds/android-arm || echo 'Warning: Failed to copy tts prebuilds to android-arm'; cp -r node_modules/@tetherto/tts-onnx/prebuilds/android-arm64 node_modules/@tetherto/tts-onnx/prebuilds/android-x64 || echo 'Warning: Failed to copy tts prebuilds to android-x64'; cp -r node_modules/@tetherto/tts-onnx/prebuilds/ios-arm64 node_modules/@tetherto/tts-onnx/prebuilds/ios-arm64-simulator 2>/dev/null || echo 'iOS prebuilds already present'; cp -r node_modules/@tetherto/tts-onnx/prebuilds/ios-arm64 node_modules/@tetherto/tts-onnx/prebuilds/ios-x64-simulator 2>/dev/null || echo 'iOS prebuilds already present'"
   },
   "repository": {
     "type": "git",
@@ -23,8 +27,9 @@
   },
   "homepage": "https://github.com/tetherto/qvac-addon-mobile-tester#readme",
   "dependencies": {
-    "@qvac/dl-hyperdrive": "^0.1.0",
-    "b4a": "^1.6.7",
+    "@qvac/dl-filesystem": "^0.1.0",
+    "@qvac/dl-hyperdrive": "^0.1.0",    "b4a": "^1.6.7",
+    "bare-fetch": "^2.5.0",
     "bare-process": "^4.2.2",
     "bare-rpc": "^0.2.13",
     "corestore": "^7.4.7",

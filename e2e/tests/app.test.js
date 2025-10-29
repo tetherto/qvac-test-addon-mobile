@@ -17,10 +17,10 @@ describe('Runner', () => {
 
     //GENERATED TESTS
 
-    it('testTts', async () => {
+    it('startTest', async () => {
         // Wait for test result to appear
-        const passText = await getElementByText('testTts: PASS')
-        const failText = await getElementByText('testTts: FAIL')
+        const passText = await getElementByText('startTest: PASS')
+        const failText = await getElementByText('startTest: FAIL')
         
         // Wait for either pass or fail with a generous timeout
         await driver.waitUntil(async () => {
@@ -30,7 +30,7 @@ describe('Runner', () => {
         }, {
             timeout: 30000,
             interval: 500,
-            timeoutMsg: 'Test testTts did not complete within 30 seconds'
+            timeoutMsg: 'Test startTest did not complete within 30 seconds'
         })
         
         // Check which one is displayed

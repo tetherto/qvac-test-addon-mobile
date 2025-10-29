@@ -124,9 +124,8 @@ function getInstalledPackageName(addonSource, isLocalPath) {
     // Handle scoped packages (@scope/name@version)
     if (addonSource.startsWith('@')) {
       // Scoped package: @scope/name or @scope/name@version
-      return nameWithoutVersion.length > 2 
-        ? `@${nameWithoutVersion[0]}/${nameWithoutVersion[1]}`
-        : `@${nameWithoutVersion[0]}/${nameWithoutVersion[1]}`
+      // nameWithoutVersion[0] is 'scope/name', nameWithoutVersion[1] is version (if present)
+      return `@${nameWithoutVersion[0]}`
     } else {
       // Unscoped package: name or name@version
       return nameWithoutVersion[0]
@@ -458,12 +457,18 @@ function copyTestAssets(packageName, projectRoot) {
 
 /**
  * Scan directory recursively and return all file paths
+ * Excludes .gitignore and hidden files
  */
 function scanDirectory(dir, baseDir = dir) {
   const files = []
   const entries = fs.readdirSync(dir, { withFileTypes: true })
   
   for (const entry of entries) {
+    // Skip .gitignore and hidden files
+    if (entry.name.startsWith('.')) {
+      continue
+    }
+    
     const fullPath = path.join(dir, entry.name)
     const relativePath = path.relative(baseDir, fullPath)
     

@@ -34,7 +34,8 @@ const withOpenCLAndroidManifest = (config) => {
         
         application['uses-native-library'].push({
           $: {
-            'android:name': 'libOpenCL.so'
+            'android:name': 'libOpenCL.so',
+            'android:required': 'false'
           }
         });
       }
