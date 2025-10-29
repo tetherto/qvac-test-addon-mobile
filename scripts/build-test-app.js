@@ -114,14 +114,28 @@ function isAddonAlreadyInstalled(addonSource, isLocalPath, projectRoot) {
   // For local paths, check if the source matches
   if (isLocalPath) {
     const resolvedSource = path.resolve(addonSource)
-    const resolvedCurrent = path.resolve(projectRoot, currentSource)
+    const stats = fs.statSync(addonSource)
+    const isDirectory = stats.isDirectory()
     
-    // If it's a .tgz file, compare the paths
+    // If current source is a .tgz file
     if (currentSource.endsWith('.tgz')) {
-      return resolvedSource === resolvedCurrent
+      if (isDirectory) {
+        // Check if the .tgz was created from this directory
+        // Extract the directory path from the .tgz path
+        const tgzDir = path.dirname(currentSource)
+        const resolvedTgzDir = path.resolve(projectRoot, tgzDir)
+        
+        // If the .tgz is in the same directory as our source, consider it installed
+        return resolvedSource === resolvedTgzDir
+      } else {
+        // Both are .tgz files, compare paths
+        const resolvedCurrent = path.resolve(projectRoot, currentSource)
+        return resolvedSource === resolvedCurrent
+      }
     }
     
     // For directories, they should match
+    const resolvedCurrent = path.resolve(projectRoot, currentSource)
     return resolvedSource === resolvedCurrent
   }
   
@@ -131,14 +145,59 @@ function isAddonAlreadyInstalled(addonSource, isLocalPath, projectRoot) {
 }
 
 /**
+ * Clean up duplicate dependencies in package.json and remove old package entry
+ * This ensures a clean state before installing
+ */
+function cleanupAndRemovePackage(packageName, projectRoot) {
+  const pkgJsonPath = path.join(projectRoot, 'package.json')
+  if (!fs.existsSync(pkgJsonPath)) {
+    return
+  }
+  
+  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
+  
+  // Remove the package if it exists
+  if (pkgJson.dependencies && pkgJson.dependencies[packageName]) {
+    log(`Removing existing ${packageName} entry before reinstalling...`)
+    delete pkgJson.dependencies[packageName]
+    
+    // Write back the cleaned package.json
+    fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf8')
+  }
+}
+
+/**
  * Install addon package and get its installed path
  */
 function installAddonPackage(addonSource, isLocalPath, projectRoot) {
-  // Check if already installed
-  if (isAddonAlreadyInstalled(addonSource, isLocalPath, projectRoot)) {
-    log('Addon package already installed, skipping installation')
-    return
+  // Get the package name first
+  let packageName
+  if (!isLocalPath) {
+    const nameWithoutVersion = addonSource.split('@').filter(Boolean)
+    if (addonSource.startsWith('@')) {
+      packageName = `@${nameWithoutVersion[0]}`
+    } else {
+      packageName = nameWithoutVersion[0]
+    }
+  } else {
+    const stats = fs.statSync(addonSource)
+    const isDirectory = stats.isDirectory()
+    
+    if (isDirectory) {
+      const sourcePkgPath = path.join(addonSource, 'package.json')
+      const sourcePkg = JSON.parse(fs.readFileSync(sourcePkgPath, 'utf8'))
+      packageName = sourcePkg.name
+    } else {
+      const output = execSync(`tar -xzOf "${addonSource}" package/package.json`, {
+        encoding: 'utf8'
+      })
+      const pkg = JSON.parse(output)
+      packageName = pkg.name
+    }
   }
+  
+  // Remove any existing entry to prevent duplicates
+  cleanupAndRemovePackage(packageName, projectRoot)
   
   log('Installing addon package...')
   
@@ -282,7 +341,7 @@ function extractTestLogic(testCode) {
 /**
  * Extract individual test function names and their parameters from test code
  * Looks for async function declarations like: async function testFoo() {...}
- * Returns array of objects: [{ name: 'testFoo', hasDirPathParam: true }]
+ * Returns array of objects: [{ name: 'testFoo', hasDirPathParam: true, hasGetAssetPathParam: true }]
  */
 function extractTestFunctions(testCode) {
   const functionRegex = /async\s+function\s+(\w+)\s*\(([^)]*)\)/g
@@ -295,9 +354,14 @@ function extractTestFunctions(testCode) {
     
     // Exclude init and helper functions (starting with _)
     if (functionName !== 'init' && !functionName.startsWith('_')) {
-      // Check if function has dirPath parameter
+      // Check if function has dirPath and getAssetPath parameters
       const hasDirPathParam = params.includes('dirPath')
-      functions.push({ name: functionName, hasDirPathParam })
+      const hasGetAssetPathParam = params.includes('getAssetPath')
+      functions.push({ 
+        name: functionName, 
+        hasDirPathParam,
+        hasGetAssetPathParam
+      })
     }
   }
   
@@ -362,9 +426,18 @@ ${testLogic}
 // Map of test functions
 const testFunctionMap = {
 ${testFunctions.map(fn => {
-  // If function has dirPath parameter, wrap it to pass the global dirPath
+  // Build the parameter list based on what the function needs
+  const params = []
   if (fn.hasDirPathParam) {
-    return `  '${fn.name}': () => ${fn.name}(dirPath)`
+    params.push('dirPath')
+  }
+  if (fn.hasGetAssetPathParam) {
+    params.push('getAssetPath')
+  }
+  
+  // If function has parameters, wrap it to pass them
+  if (params.length > 0) {
+    return `  '${fn.name}': () => ${fn.name}(${params.join(', ')})`
   } else {
     return `  '${fn.name}': ${fn.name}`
   }
