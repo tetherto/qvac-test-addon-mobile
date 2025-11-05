@@ -108,6 +108,12 @@ export default function App() {
                 addMessage(`Audio playback failed: ${error.message}`)
             }
         }
+        if (jsonResult.fullText) {
+            addMessage(`Full Text: ${jsonResult.fullText}`)
+        }
+        if (jsonResult.score) {
+            addMessage(`Score: ${jsonResult.score}`)
+        }
     }
 
     return (

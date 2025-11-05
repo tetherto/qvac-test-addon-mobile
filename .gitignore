@@ -16,10 +16,15 @@ npm-debug.*
 web-build/
 tmp/
 .DS_Store
+
+# Generated files (from build-test-app.js)
 backend/backend.cjs
 backend/*.bundle
-testAssets
+testAssets/
+app/testConfig.js
 app/assetManifest.js
+e2e/tests/app.test.js
+
 e2e/bun.lock
 bun.lock
 app/testConfig.js

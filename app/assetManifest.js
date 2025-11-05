@@ -4,7 +4,7 @@
 
 export const ASSET_FILES = [
   {
-    projectPath: '../../testAssets/decodedFile.raw',
-    modulePath: require('../testAssets/decodedFile.raw')
+    projectPath: '../../testAssets/short_en.raw',
+    modulePath: require('../testAssets/short_en.raw')
   }
 ]
