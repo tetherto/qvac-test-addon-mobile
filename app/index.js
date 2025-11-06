@@ -83,13 +83,14 @@ export default function App() {
             request.send(JSON.stringify({ testName }))
             const response = await request.reply('utf8')
             const result = JSON.parse(response.toString())
-            console.log('Result:', result.result)
-            handleResultData(result.result)
+            if (result.result) {
+                handleResultData(result.result)
+            }
             if (result.success) {
                 console.log(`✅ ${testName} passed`)
                 addMessage(`${testName}: PASS`)
             } else {
-                console.error(`❌ ${testName} failed:`, result.error)
+                console.log(`❌ ${testName} failed:`, result.error)
                 addMessage(`${testName}: FAIL - ${result.error}`)
             }
         } catch (error) {
