@@ -248,18 +248,18 @@ function installAddonPackage(addonSource, isLocalPath, projectRoot) {
  */
 function getInstalledPackageName(addonSource, isLocalPath) {
   if (!isLocalPath) {
-    // It's already a package name, return as is
-    // May include version specifier like "package@1.0.0", so extract just the name
-    const nameWithoutVersion = addonSource.split('@').filter(Boolean)
-    // Handle scoped packages (@scope/name@version)
     if (addonSource.startsWith('@')) {
-      // Scoped package: @scope/name or @scope/name@version
-      return nameWithoutVersion.length > 2 
-        ? `@${nameWithoutVersion[0]}/${nameWithoutVersion[1]}`
-        : `@${nameWithoutVersion[0]}/${nameWithoutVersion[1]}`
+      const atIndex = addonSource.indexOf('@', 1)
+      if (atIndex === -1) {
+        return addonSource
+      }
+      return addonSource.substring(0, atIndex)
     } else {
-      // Unscoped package: name or name@version
-      return nameWithoutVersion[0]
+      const atIndex = addonSource.indexOf('@')
+      if (atIndex === -1) {
+        return addonSource
+      }
+      return addonSource.substring(0, atIndex)
     }
   }
   
