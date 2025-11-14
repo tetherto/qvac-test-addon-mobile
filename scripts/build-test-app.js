@@ -404,10 +404,19 @@ async function init(path, assets = {}) {
 
 function getAssetPath(assetName) {
   const projectPath = \`../../testAssets/\${assetName}\`
+  
+  // Check if it's a JSON file - these are not loaded as assets
+  if (assetName.toLowerCase().endsWith('.json')) {
+    // For JSON files, use require.asset directly (they're bundled as modules)
+    return require.asset(\`../testAssets/\${assetName}\`, __filename)
+  }
+  
+  // For other assets, check the asset map first
   if (global.assetPaths && global.assetPaths[projectPath]) {
     // Remove file:// prefix if present and return the actual path
     return global.assetPaths[projectPath].replace('file://', '')
   }
+  
   // Fallback to require.asset if not found in map
   return require.asset(\`../testAssets/\${assetName}\`, __filename)
 }
@@ -657,10 +666,21 @@ export const ASSET_FILES = []
   }
   
   // Scan for all files
-  const files = scanDirectory(testAssetsDir)
+  const allFiles = scanDirectory(testAssetsDir)
   
-  log(`Found ${files.length} asset file(s):`)
-  files.forEach(f => log(`  - ${f}`))
+  // Filter out JSON files - they should be required directly, not loaded as assets
+  // JSON files are treated as JavaScript modules by Metro bundler
+  const files = allFiles.filter(f => !f.toLowerCase().endsWith('.json'))
+  
+  log(`Found ${allFiles.length} file(s) in testAssets (${allFiles.length - files.length} JSON file(s) excluded)`)
+  if (files.length > 0) {
+    log('Asset files to load:')
+    files.forEach(f => log(`  - ${f}`))
+  }
+  if (allFiles.length - files.length > 0) {
+    log('JSON files (excluded from asset manifest):')
+    allFiles.filter(f => f.toLowerCase().endsWith('.json')).forEach(f => log(`  - ${f}`))
+  }
   
   // Generate the manifest file
   const manifestContent = `// Auto-generated asset manifest
