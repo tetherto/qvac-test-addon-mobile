@@ -204,7 +204,7 @@ function installAddonPackage(addonSource, isLocalPath, projectRoot) {
   if (!isLocalPath) {
     // It's a published package name, install directly from npm
     log(`Installing package from npm: ${addonSource}`)
-    execSync(`bun install "${addonSource}"`, {
+    execSync(`npm install "${addonSource}"`, {
       cwd: projectRoot,
       stdio: 'inherit'
     })
@@ -224,7 +224,7 @@ function installAddonPackage(addonSource, isLocalPath, projectRoot) {
       log(`Created package: ${tgzPath}`)
       
       // Install the .tgz file
-      execSync(`bun install "${tgzPath}"`, {
+      execSync(`npm install "${tgzPath}"`, {
         cwd: projectRoot,
         stdio: 'inherit'
       })
@@ -233,7 +233,7 @@ function installAddonPackage(addonSource, isLocalPath, projectRoot) {
       fs.unlinkSync(tgzPath)
     } else {
       // It's a .tgz file, install directly
-      execSync(`bun install "${addonSource}"`, {
+      execSync(`npm install "${addonSource}"`, {
         cwd: projectRoot,
         stdio: 'inherit'
       })
@@ -404,10 +404,13 @@ async function init(path, assets = {}) {
 
 function getAssetPath(assetName) {
   const projectPath = \`../../testAssets/\${assetName}\`
+  
+  // For other assets, check the asset map first
   if (global.assetPaths && global.assetPaths[projectPath]) {
     // Remove file:// prefix if present and return the actual path
     return global.assetPaths[projectPath].replace('file://', '')
   }
+  
   // Fallback to require.asset if not found in map
   return require.asset(\`../testAssets/\${assetName}\`, __filename)
 }
@@ -560,7 +563,7 @@ function installTestDependencies(addonPackageJson, testDependencies, projectRoot
   
   if (depsToInstall.length > 0) {
     log(`Installing test dependencies: ${depsToInstall.join(', ')}`)
-    execSync(`bun install ${depsToInstall.join(' ')}`, {
+    execSync(`npm install ${depsToInstall.join(' ')}`, {
       cwd: projectRoot,
       stdio: 'inherit'
     })
@@ -657,10 +660,12 @@ export const ASSET_FILES = []
   }
   
   // Scan for all files
-  const files = scanDirectory(testAssetsDir)
-  
-  log(`Found ${files.length} asset file(s):`)
-  files.forEach(f => log(`  - ${f}`))
+  const allFiles = scanDirectory(testAssetsDir)
+   
+  if (allFiles.length > 0) {
+    log('Asset files to load:')
+    allFiles.forEach(f => log(`  - ${f}`))
+  }
   
   // Generate the manifest file
   const manifestContent = `// Auto-generated asset manifest
@@ -668,7 +673,7 @@ export const ASSET_FILES = []
 // Do not edit manually!
 
 export const ASSET_FILES = [
-${files.map(f => `  {
+${allFiles.map(f => `  {
     projectPath: '../../testAssets/${f.replace(/\\/g, '/')}',
     modulePath: require('../testAssets/${f.replace(/\\/g, '/')}')
   }`).join(',\n')}
