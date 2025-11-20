@@ -20,7 +20,8 @@ This is a React Native + Bare runtime application that:
 🔧 **Auto-Generated E2E Tests**: Creates WebDriverIO tests for each test function  
 🚀 **Zero Configuration**: Just provide a `test/mobile/test.cjs` file and go  
 📱 **Cross-Platform**: Works on both iOS and Android  
-🔄 **Hot Reload Ready**: Rebuild and redeploy quickly during development
+🔄 **Hot Reload Ready**: Rebuild and redeploy quickly during development  
+🎤 **Pre-Test Steps**: Support for pre-test actions like microphone recording before tests run
 
 ## Architecture
 
@@ -295,6 +296,55 @@ npm run android  # builds APK
 
 2. Upload APK to Device Farm
 3. Run e2e tests against the uploaded build
+
+## Advanced Features
+
+### Pre-Test Steps
+
+The mobile tester supports pre-test steps that execute before running the actual test. This is useful for:
+- Recording audio from the microphone for transcription tests
+- Collecting user input dynamically
+- Setting up test data on-device
+
+#### Example: Microphone Recording Test
+
+1. **Configure the test** in `app/testConfig.js`:
+
+```javascript
+export const TEST_CONFIG = {
+  'test_mic_transcription': {
+    preTest: {
+      type: 'recordMicrophone',
+      duration: 5000  // Record for 5 seconds
+    }
+  }
+}
+```
+
+2. **Write your test function** to accept `preTestData`:
+
+```javascript
+async function test_mic_transcription(dirPath, getAssetPath, preTestData) {
+    // preTestData contains { audioData, sampleRate, format }
+    const audioBuffer = Buffer.from(Float32Array.from(preTestData.audioData).buffer)
+    
+    // Use the recorded audio for transcription
+    const model = await loadModel()
+    const result = await model.transcribe(audioBuffer)
+    
+    return { fullText: result }
+}
+```
+
+For detailed documentation and examples, see [PRETEST_EXAMPLE.md](./PRETEST_EXAMPLE.md).
+
+### Post-Test Steps
+
+Post-test steps are handled automatically in `app/index.js` via the `handleResultData()` function. Currently supported:
+
+- **Audio Playback**: Return `{ audioData: [...] }` from your test to play audio
+- **Text Display**: Return `{ fullText: "..." }` to display transcribed text
+- **Scores**: Return `{ score: 0.95 }` to show metrics
 
 ## Project Structure
 
