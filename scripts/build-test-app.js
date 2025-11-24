@@ -730,6 +730,7 @@ ${allFiles.map(f => `  {
 
 /**
  * Generate testConfig.js with list of test functions
+ * Returns testConfigs for use in e2e test generation
  */
 function generateTestConfig(testFunctions, projectRoot) {
   const configPath = path.join(projectRoot, 'app', 'testConfig.js')
@@ -778,16 +779,35 @@ ${configEntriesStr || '  // No pre-test configurations detected'}
   
   fs.writeFileSync(configPath, configContent, 'utf8')
   log(`Generated test config at: ${configPath}`)
+  
+  // Return testConfigs so e2e test generation can filter out manual tests
+  return testConfigs
 }
 
 /**
  * Generate app.test.js with individual test cases
+ * Only generates tests for automated tests (excludes manual tests)
  */
-function generateTestFile(testFunctions, projectRoot) {
+function generateTestFile(testFunctions, manualTestConfigs, projectRoot) {
   const testFilePath = path.join(projectRoot, 'e2e', 'tests', 'app.test.js')
   
   // Extract just the function names for test generation
-  const testFunctionNames = testFunctions.map(fn => fn.name)
+  // Filter out manual tests (those in manualTestConfigs)
+  const testFunctionNames = testFunctions
+    .map(fn => fn.name)
+    .filter(name => !manualTestConfigs[name])
+  
+  if (testFunctionNames.length === 0) {
+    log('No automated tests found, skipping e2e test generation')
+  } else {
+    log(`Generating e2e tests for ${testFunctionNames.length} automated test(s)`)
+    testFunctionNames.forEach(name => log(`  - ${name}`))
+  }
+  
+  const manualTestNames = Object.keys(manualTestConfigs)
+  const manualTestsComment = manualTestNames.length > 0 
+    ? `\n    // Manual tests (excluded from e2e): ${manualTestNames.join(', ')}\n`
+    : ''
   
   const testContent = `const { expect, driver } = require("@wdio/globals");
 
@@ -805,8 +825,8 @@ describe('Runner', () => {
 
         expect(await text.isDisplayed()).toBe(true)
     })
-
-    //GENERATED TESTS
+${manualTestsComment}
+    //GENERATED TESTS (AUTOMATED ONLY)
 ${testFunctionNames.map(testName => `
     it('${testName}', async () => {
         // Wait for test result to appear
@@ -918,11 +938,11 @@ function main() {
   
   // Step 12: Generate test config
   log('Generating test config...')
-  generateTestConfig(testFunctions, projectRoot)
+  const manualTestConfigs = generateTestConfig(testFunctions, projectRoot)
   
-  // Step 13: Generate test file
-  log('Generating test file...')
-  generateTestFile(testFunctions, projectRoot)
+  // Step 13: Generate test file (only for automated tests)
+  log('Generating e2e test file...')
+  generateTestFile(testFunctions, manualTestConfigs, projectRoot)
   
   // Step 14: Bundle app
   bundleApp(projectRoot)
