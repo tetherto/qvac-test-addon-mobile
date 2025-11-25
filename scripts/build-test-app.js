@@ -306,7 +306,7 @@ function readTestCode(packageName, projectRoot) {
   // Read all .cjs files in the test/mobile directory
   const files = fs.readdirSync(testDirPath)
     .filter(file => file.endsWith('.cjs'))
-    .sort() // Sort alphabetically for consistent ordering
+    .sort()
   
   if (files.length === 0) {
     error(`No .cjs test files found in: ${testDirPath}`)
