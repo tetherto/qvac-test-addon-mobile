@@ -11,19 +11,24 @@ const { execSync } = require('child_process')
  * 
  * This script:
  * 1. Takes an addon path, .tgz file, or published npm package name
- * 2. Reads the test/mobile/test.cjs from the addon
- * 3. Extracts individual test functions (async function declarations)
- * 4. Generates backend.cjs with individual test runners and error handling
- * 5. Generates testConfig.js with list of test functions
- * 6. Generates e2e/tests/app.test.js with WebDriver test cases
- * 7. Installs the addon package and dependencies
- * 8. Bundles the app
+ * 2. Reads ALL .cjs files from test/mobile/ directory of the addon
+ * 3. Combines all test files (constants, helpers, test functions)
+ * 4. Extracts individual test functions (async function declarations)
+ * 5. Generates backend.cjs with individual test runners and error handling
+ * 6. Generates testConfig.js with list of test functions
+ * 7. Generates e2e/tests/app.test.js with WebDriver test cases
+ * 8. Installs the addon package and dependencies
+ * 9. Bundles the app
  * 
  * Supported input formats:
  * - Local directory: ./path/to/addon
  * - Local .tgz file: ./path/to/addon.tgz
  * - Published package: my-addon or @scope/my-addon
  * - Published package with version: my-addon@1.0.0 or @scope/my-addon@1.0.0
+ * 
+ * Test file organization:
+ * - test/mobile/*.cjs files are combined alphabetically
+ * - Allows organizing tests into multiple files (helpers, constants, tests, etc.)
  * 
  * How tests are run:
  * - Each test function is run individually via RUN_TEST RPC command
@@ -287,18 +292,36 @@ function getInstalledPackageName(addonSource, isLocalPath) {
 }
 
 /**
- * Read test code from installed addon in node_modules
+ * Read all test code files from installed addon in node_modules
+ * Reads all .cjs files from test/mobile/ directory and combines them
  */
 function readTestCode(packageName, projectRoot) {
   const addonPath = path.join(projectRoot, 'node_modules', packageName)
-  const testFilePath = path.join(addonPath, 'test', 'mobile', 'test.cjs')
+  const testDirPath = path.join(addonPath, 'test', 'mobile')
   
-  if (!fs.existsSync(testFilePath)) {
-    error(`Test file not found: ${testFilePath}\nMake sure the addon has test/mobile/test.cjs`)
+  if (!fs.existsSync(testDirPath)) {
+    error(`Test directory not found: ${testDirPath}\nMake sure the addon has test/mobile/ directory`)
   }
   
-  log(`Reading test code from: ${testFilePath}`)
-  return fs.readFileSync(testFilePath, 'utf8')
+  // Read all .cjs files in the test/mobile directory
+  const files = fs.readdirSync(testDirPath)
+    .filter(file => file.endsWith('.cjs'))
+    .sort() // Sort alphabetically for consistent ordering
+  
+  if (files.length === 0) {
+    error(`No .cjs test files found in: ${testDirPath}`)
+  }
+  
+  log(`Reading test code from ${files.length} file(s): ${files.join(', ')}`)
+  
+  // Combine all test files
+  const combinedCode = files.map(file => {
+    const filePath = path.join(testDirPath, file)
+    const content = fs.readFileSync(filePath, 'utf8')
+    return `// ===== From ${file} =====\n${content}\n`
+  }).join('\n')
+  
+  return combinedCode
 }
 
 /**
