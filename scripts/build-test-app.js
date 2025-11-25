@@ -27,8 +27,17 @@ const { execSync } = require('child_process')
  * - Published package with version: my-addon@1.0.0 or @scope/my-addon@1.0.0
  * 
  * Test file organization:
- * - test/mobile/*.cjs files are combined alphabetically
- * - Allows organizing tests into multiple files (helpers, constants, tests, etc.)
+ * - All .cjs files in test/mobile/ are automatically ordered based on require() dependencies
+ * - Files use require('./filename.cjs') to declare dependencies
+ * - Build script creates a dependency graph and uses topological sort
+ * - Users can name files anything and organize however they want
+ * - No manual numbering required - dependencies are auto-detected
+ * 
+ * Example:
+ *   constants.cjs         (no requires - loads first)
+ *   helpers.cjs           (requires './constants.cjs' - loads second)
+ *   accuracy-tests.cjs    (requires './helpers.cjs' - loads third)
+ *   performance-tests.cjs (requires './helpers.cjs' - loads third)
  * 
  * How tests are run:
  * - Each test function is run individually via RUN_TEST RPC command
@@ -292,8 +301,70 @@ function getInstalledPackageName(addonSource, isLocalPath) {
 }
 
 /**
+ * Extract local file dependencies from require() statements
+ * Returns array of local .cjs filenames this file depends on
+ */
+function extractLocalDependencies(content, currentFile) {
+  const dependencies = []
+  
+  // Match require('./filename.cjs') or require('./filename')
+  const requireRegex = /require\s*\(\s*['"]\.\/([\w-]+)(\.cjs)?['"]\s*\)/g
+  let match
+  
+  while ((match = requireRegex.exec(content)) !== null) {
+    let depFile = match[1]
+    // Add .cjs extension if not present
+    if (!depFile.endsWith('.cjs')) {
+      depFile += '.cjs'
+    }
+    dependencies.push(depFile)
+  }
+  
+  return dependencies
+}
+
+/**
+ * Topologically sort files based on their dependencies
+ * Returns array of filenames in correct load order
+ */
+function topologicalSort(filesWithDeps) {
+  const sorted = []
+  const visited = new Set()
+  const visiting = new Set()
+  
+  function visit(file) {
+    if (visited.has(file)) return
+    if (visiting.has(file)) {
+      throw new Error(`Circular dependency detected involving: ${file}`)
+    }
+    
+    visiting.add(file)
+    
+    const fileData = filesWithDeps.find(f => f.file === file)
+    if (fileData) {
+      // Visit dependencies first
+      for (const dep of fileData.dependencies) {
+        visit(dep)
+      }
+    }
+    
+    visiting.delete(file)
+    visited.add(file)
+    sorted.push(file)
+  }
+  
+  // Visit all files
+  for (const { file } of filesWithDeps) {
+    visit(file)
+  }
+  
+  return sorted
+}
+
+/**
  * Read all test code files from installed addon in node_modules
  * Reads all .cjs files from test/mobile/ directory and combines them
+ * Smart ordering: constants → helpers → tests (auto-detected)
  */
 function readTestCode(packageName, projectRoot) {
   const addonPath = path.join(projectRoot, 'node_modules', packageName)
@@ -303,22 +374,36 @@ function readTestCode(packageName, projectRoot) {
     error(`Test directory not found: ${testDirPath}\nMake sure the addon has test/mobile/ directory`)
   }
   
-  // Read all .cjs files in the test/mobile directory
-  const files = fs.readdirSync(testDirPath)
+  // Read all .cjs files
+  const allFiles = fs.readdirSync(testDirPath)
     .filter(file => file.endsWith('.cjs'))
-    .sort()
   
-  if (files.length === 0) {
+  if (allFiles.length === 0) {
     error(`No .cjs test files found in: ${testDirPath}`)
   }
   
-  log(`Reading test code from ${files.length} file(s): ${files.join(', ')}`)
-  
-  // Combine all test files
-  const combinedCode = files.map(file => {
+  // Read content and extract dependencies
+  const filesWithDeps = allFiles.map(file => {
     const filePath = path.join(testDirPath, file)
     const content = fs.readFileSync(filePath, 'utf8')
-    return `// ===== From ${file} =====\n${content}\n`
+    const dependencies = extractLocalDependencies(content, file)
+    return { file, content, dependencies }
+  })
+  
+  // Topologically sort files based on their require() dependencies
+  const sortedFiles = topologicalSort(filesWithDeps)
+  
+  log(`Reading test code from ${sortedFiles.length} file(s): ${sortedFiles.join(', ')}`)
+  
+  // Combine all test files in dependency order
+  const combinedCode = sortedFiles.map(file => {
+    const fileData = filesWithDeps.find(f => f.file === file)
+    // Strip out the require('./...') statements since we're combining files
+    const contentWithoutLocalRequires = fileData.content.replace(
+      /require\s*\(\s*['"]\.\/([\w-]+)(\.cjs)?['"]\s*\)\s*\n?/g,
+      ''
+    )
+    return `// ===== From ${file} =====\n${contentWithoutLocalRequires}\n`
   }).join('\n')
   
   return combinedCode
