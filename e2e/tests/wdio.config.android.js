@@ -14,8 +14,8 @@ exports.config = {
         "appium:appPackage": "to.tether.addon.tester",
         "appium:appActivity": "to.tether.addon.tester.MainActivity",
         "appium:newCommandTimeout": 300,
-        "appium:autoGrantPermissions": true,
-        "appium:autoAcceptAlerts": true,
+        "appium:autoGrantPermissions": true,  // Auto-grant runtime permissions (microphone, etc.)
+        "appium:autoAcceptAlerts": true,       // Auto-accept all dialogs
         "appium:noReset": true
       },
     ],
