@@ -25,7 +25,6 @@
   "dependencies": {
     "@qvac/dl-filesystem": "^0.1.0",
     "@qvac/dl-hyperdrive": "^0.1.1",
-    "@qvac/transcription-whispercpp": "file:../qvac-lib-infer-whispercpp/qvac-transcription-whispercpp-0.1.11.tgz",
     "@speechmatics/expo-two-way-audio": "^0.1.2",
     "b4a": "^1.6.7",
     "bare-fetch": "^2.5.0",
