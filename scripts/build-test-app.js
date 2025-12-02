@@ -450,7 +450,7 @@ function extractTestLogic(testCode) {
 /**
  * Extract individual test function names and their parameters from test code
  * Looks for async function declarations like: async function testFoo() {...}
- * Returns array of objects: [{ name: 'testFoo', hasDirPathParam: true, hasGetAssetPathParam: true }]
+ * Returns array of objects with parameter details
  */
 function extractTestFunctions(testCode) {
   const functionRegex = /async\s+function\s+(\w+)\s*\(([^)]*)\)/g
@@ -459,17 +459,31 @@ function extractTestFunctions(testCode) {
   
   while ((match = functionRegex.exec(testCode)) !== null) {
     const functionName = match[1]
-    const params = match[2].trim()
+    const paramsString = match[2].trim()
     
     // Exclude init and helper functions (starting with _)
     if (functionName !== 'init' && !functionName.startsWith('_')) {
-      // Check if function has dirPath and getAssetPath parameters
+      // Parse parameter names
+      const params = paramsString ? paramsString.split(',').map(p => p.trim()) : []
+      
+      // Detect parameter types
       const hasDirPathParam = params.includes('dirPath')
       const hasGetAssetPathParam = params.includes('getAssetPath')
+      
+      // Check for audioData/buffer parameter (indicates direct pre-test data usage)
+      const hasAudioDataParam = params.some(p => 
+        p === 'audioData' || 
+        p === 'buffer' || 
+        p.startsWith('audioData') ||
+        p.startsWith('buffer')
+      )
+      
       functions.push({ 
         name: functionName, 
+        params,
         hasDirPathParam,
-        hasGetAssetPathParam
+        hasGetAssetPathParam,
+        hasAudioDataParam
       })
     }
   }
@@ -538,7 +552,13 @@ ${testLogic}
 // Map of test functions
 const testFunctionMap = {
 ${testFunctions.map(fn => {
-  // Build the parameter list based on what the function needs
+  // Case 1: Function takes audioData/buffer directly (e.g., test_mic_transcription(audioData))
+  // These typically expect pre-test data as the first/only parameter
+  if (fn.hasAudioDataParam && !fn.hasDirPathParam && !fn.hasGetAssetPathParam) {
+    return `  '${fn.name}': (preTestData) => ${fn.name}(preTestData)`
+  }
+  
+  // Case 2: Function has standard params (dirPath, getAssetPath)
   const params = []
   if (fn.hasDirPathParam) {
     params.push('dirPath')
@@ -547,12 +567,20 @@ ${testFunctions.map(fn => {
     params.push('getAssetPath')
   }
   
-  // If function has parameters, wrap it to pass them
+  // If function has standard parameters, wrap it to pass them
   if (params.length > 0) {
-    return `  '${fn.name}': () => ${fn.name}(${params.join(', ')})`
-  } else {
-    return `  '${fn.name}': ${fn.name}`
+    // Check if function also has audioData param (mixed signature)
+    if (fn.hasAudioDataParam) {
+      // Pass standard params first, then preTestData as audioData
+      return `  '${fn.name}': (preTestData) => ${fn.name}(${params.join(', ')}, preTestData)`
+    } else {
+      // Standard function without audioData param
+      return `  '${fn.name}': (preTestData) => ${fn.name}(${params.join(', ')})`
+    }
   }
+  
+  // Case 3: No parameters - just reference the function directly
+  return `  '${fn.name}': ${fn.name}`
 }).join(',\n')}
 }
 
@@ -572,7 +600,7 @@ async function handleInit(req) {
 async function handleRunTest(req) {
     try {
         const data = JSON.parse(req.data.toString('utf8'))
-        const { testName } = data
+        const { testName, preTestData } = data
         
         if (!testFunctionMap[testName]) {
             req.reply(JSON.stringify({ 
@@ -584,8 +612,24 @@ async function handleRunTest(req) {
         
         console.log(\`Running test: \${testName}\`)
         
+        // Process preTestData - convert Buffer-like objects back to actual Buffers
+        let processedPreTestData = preTestData
+        if (preTestData) {
+            // Check if preTestData is a Buffer serialized as JSON
+            if (preTestData.type === 'Buffer' && Array.isArray(preTestData.data)) {
+                // Reconstruct the Buffer from JSON representation
+                processedPreTestData = Buffer.from(preTestData.data)
+                console.log(\`Pre-test data: Reconstructed Buffer of \${processedPreTestData.length} bytes\`)
+            } else if (typeof preTestData === 'object') {
+                console.log(\`Pre-test data received:\`, Object.keys(preTestData))
+            } else {
+                console.log(\`Pre-test data type:\`, typeof preTestData)
+            }
+        }
+        
         try {
-            const result = await testFunctionMap[testName]()
+            // Pass processedPreTestData to the test function
+            const result = await testFunctionMap[testName](processedPreTestData)
             console.log(\`Test '\${testName}' passed\`)
             req.reply(JSON.stringify({ 
                 success: true, 
@@ -794,6 +838,7 @@ ${allFiles.map(f => `  {
 
 /**
  * Generate testConfig.js with list of test functions
+ * Returns testConfigs for use in e2e test generation
  */
 function generateTestConfig(testFunctions, projectRoot) {
   const configPath = path.join(projectRoot, 'app', 'testConfig.js')
@@ -801,25 +846,76 @@ function generateTestConfig(testFunctions, projectRoot) {
   // Extract just the function names for the config
   const testFunctionNames = testFunctions.map(fn => fn.name)
   
+  // Auto-detect tests that need pre-test configuration
+  const testConfigs = {}
+  
+  for (const fn of testFunctions) {
+    // If function takes audioData/buffer as parameter, it likely needs microphone recording
+    if (fn.hasAudioDataParam && !fn.hasDirPathParam && !fn.hasGetAssetPathParam) {
+      // Check if test name suggests microphone/recording
+      if (fn.name.toLowerCase().includes('mic') || 
+          fn.name.toLowerCase().includes('record') ||
+          fn.name.toLowerCase().includes('audio')) {
+        testConfigs[fn.name] = {
+          preTest: {
+            type: 'recordMicrophone',
+            duration: 5000
+          }
+        }
+        log(`  Auto-configured pre-test (recordMicrophone) for: ${fn.name}`)
+      }
+    }
+  }
+  
+  // Generate TEST_CONFIG object
+  const configEntriesStr = Object.entries(testConfigs).map(([name, config]) => {
+    return `  '${name}': ${JSON.stringify(config, null, 4).replace(/^/gm, '  ').trim()}`
+  }).join(',\n')
+  
   const configContent = `// Auto-generated test configuration
 // This file is generated by scripts/build-test-app.js
 // Do not edit manually!
 
 export const TEST_FUNCTIONS = ${JSON.stringify(testFunctionNames, null, 2)}
+
+// Optional: Configuration for tests that need pre-test or post-test steps
+// This is auto-generated based on test function signatures
+export const TEST_CONFIG = {
+${configEntriesStr || '  // No pre-test configurations detected'}
+}
 `
   
   fs.writeFileSync(configPath, configContent, 'utf8')
   log(`Generated test config at: ${configPath}`)
+  
+  // Return testConfigs so e2e test generation can filter out manual tests
+  return testConfigs
 }
 
 /**
  * Generate app.test.js with individual test cases
+ * Only generates tests for automated tests (excludes manual tests)
  */
-function generateTestFile(testFunctions, projectRoot) {
+function generateTestFile(testFunctions, manualTestConfigs, projectRoot) {
   const testFilePath = path.join(projectRoot, 'e2e', 'tests', 'app.test.js')
   
   // Extract just the function names for test generation
-  const testFunctionNames = testFunctions.map(fn => fn.name)
+  // Filter out manual tests (those in manualTestConfigs)
+  const testFunctionNames = testFunctions
+    .map(fn => fn.name)
+    .filter(name => !manualTestConfigs[name])
+  
+  if (testFunctionNames.length === 0) {
+    log('No automated tests found, skipping e2e test generation')
+  } else {
+    log(`Generating e2e tests for ${testFunctionNames.length} automated test(s)`)
+    testFunctionNames.forEach(name => log(`  - ${name}`))
+  }
+  
+  const manualTestNames = Object.keys(manualTestConfigs)
+  const manualTestsComment = manualTestNames.length > 0 
+    ? `\n    // Manual tests (excluded from e2e): ${manualTestNames.join(', ')}\n`
+    : ''
   
   const testContent = `const { expect, driver } = require("@wdio/globals");
 
@@ -837,8 +933,8 @@ describe('Runner', () => {
 
         expect(await text.isDisplayed()).toBe(true)
     })
-
-    //GENERATED TESTS
+${manualTestsComment}
+    //GENERATED TESTS (AUTOMATED ONLY)
 ${testFunctionNames.map(testName => `
     it('${testName}', async () => {
         // Wait for test result to appear
@@ -950,11 +1046,11 @@ function main() {
   
   // Step 12: Generate test config
   log('Generating test config...')
-  generateTestConfig(testFunctions, projectRoot)
+  const manualTestConfigs = generateTestConfig(testFunctions, projectRoot)
   
-  // Step 13: Generate test file
-  log('Generating test file...')
-  generateTestFile(testFunctions, projectRoot)
+  // Step 13: Generate test file (only for automated tests)
+  log('Generating e2e test file...')
+  generateTestFile(testFunctions, manualTestConfigs, projectRoot)
   
   // Step 14: Bundle app
   bundleApp(projectRoot)

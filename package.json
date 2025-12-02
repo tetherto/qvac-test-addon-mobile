@@ -8,7 +8,7 @@
     "bundle": "scripts/bundle.sh",
     "build": "node scripts/build-test-app.js",
     "android": "npm run bundle && expo run:android",
-    "ios": "npm run bundle && expo run:ios",
+    "ios": "npm run bundle && expo run:ios --device",
     "barelog": "adb logcat '*:S bare:*'",
     "start": "expo start"
   },
@@ -25,7 +25,7 @@
   "dependencies": {
     "@qvac/dl-filesystem": "^0.1.0",
     "@qvac/dl-hyperdrive": "^0.1.1",
-    "@qvac/tts-onnx": "^0.2.5",
+    "@speechmatics/expo-two-way-audio": "^0.1.2",
     "b4a": "^1.6.7",
     "bare-fetch": "^2.5.0",
     "bare-process": "^4.2.2",
