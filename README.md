@@ -75,7 +75,7 @@ This is a React Native + Bare runtime application that:
 From the template project root:
 
 ```bash
-npm run build <addon-source>
+npm run build <addon-source> [mobile-tests-dir]
 ```
 
 The build command supports multiple input formats:
@@ -100,6 +100,17 @@ npm run build @qvac/llm-llamacpp
 npm run build @qvac/llm-llamacpp@0.3.1
 ```
 
+**Override mobile tests directory (bypass packaged tests):**
+```bash
+npm run build @qvac/llm-llamacpp@0.5.6 ./path/to/mobile/tests
+```
+or with a local addon:
+```bash
+npm run build ../qvac-lib-infer-llamacpp-llm ./path/to/mobile/tests
+```
+- All `.cjs` files in `./path/to/mobile/tests` are used as the mobile test source.
+- If `./path/to/mobile/tests/testAssets` exists, those assets are copied into the app; otherwise no assets are bundled (empty manifest).
+
 This script will:
 - ✅ Extract test code from addon's `test/mobile/test.cjs`
 - ✅ Install the addon package
@@ -109,6 +120,10 @@ This script will:
 - ✅ Generate `app/assetManifest.js` for asset loading
 - ✅ Generate `e2e/tests/app.test.js` with individual test cases
 - ✅ Bundle the app using `bare-pack`
+
+Notes on asset precedence:
+- When an override tests dir is provided, assets are taken from `override/testAssets` if present; otherwise from the addon’s `test/mobile/testAssets`.
+- Generated files (`assetManifest.js`, `testConfig.js`) export defaults to satisfy Expo Router.
 
 ### 2. Run on Device/Simulator
 
@@ -131,6 +146,26 @@ The app will automatically:
 Each test function runs independently, so one failure doesn't stop others from running.
 
 ## Creating Tests for Your Addon
+## Local runner (desktop) tips
+
+To run generated mobile tests locally without a device:
+
+```bash
+npm run test:mobile:local
+```
+
+- To target specific tests:
+  ```bash
+  npm run test:mobile:local -- startTest startMultimodalTest
+  ```
+- To point the runner at a specific mobile tests directory (same override used at build time):
+  ```bash
+  npm run test:mobile:local -- --tests-dir=./path/to/mobile/tests
+  ```
+  or
+  ```bash
+  QVAC_TESTS_DIR=./path/to/mobile/tests npm run test:mobile:local
+  ```
 
 ### Step 1: Create Test File
 
