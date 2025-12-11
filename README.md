@@ -121,10 +121,6 @@ This script will:
 - ✅ Generate `e2e/tests/app.test.js` with individual test cases
 - ✅ Bundle the app using `bare-pack`
 
-Notes on asset precedence:
-- When an override tests dir is provided, assets are taken from `override/testAssets` if present; otherwise from the addon’s `test/mobile/testAssets`.
-- Generated files (`assetManifest.js`, `testConfig.js`) export defaults to satisfy Expo Router.
-
 ### 2. Run on Device/Simulator
 
 #### Android
@@ -146,26 +142,6 @@ The app will automatically:
 Each test function runs independently, so one failure doesn't stop others from running.
 
 ## Creating Tests for Your Addon
-## Local runner (desktop) tips
-
-To run generated mobile tests locally without a device:
-
-```bash
-npm run test:mobile:local
-```
-
-- To target specific tests:
-  ```bash
-  npm run test:mobile:local -- startTest startMultimodalTest
-  ```
-- To point the runner at a specific mobile tests directory (same override used at build time):
-  ```bash
-  npm run test:mobile:local -- --tests-dir=./path/to/mobile/tests
-  ```
-  or
-  ```bash
-  QVAC_TESTS_DIR=./path/to/mobile/tests npm run test:mobile:local
-  ```
 
 ### Step 1: Create Test File
 
