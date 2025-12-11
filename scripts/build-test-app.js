@@ -621,64 +621,11 @@ function extractTestFunctions(testCode) {
 /**
  * Generate backend.cjs with injected test logic
  */
-function generateBackend(testLogic, testFunctions, integrationFiles = [], testSourceRoot = '') {
+function generateBackend(testLogic, testFunctions, integrationFiles = []) {
   return `const { INIT, RUN_TEST } = require('./api.cjs')
 const RPC = require('bare-rpc')
 const fs = require('bare-fs')
 const path = require('bare-path')
-const TEST_SOURCE_ROOT = ${JSON.stringify(testSourceRoot)}
-let FilesystemDL = null
-try {
-  const __orig = require('@qvac/dl-filesystem')
-  FilesystemDL = class extends __orig {
-    constructor(opts = {}) {
-      const resolvePath = (p) => {
-        if (!p) return p
-        if (p.startsWith('/') || /^[A-Za-z]:/.test(p)) return p
-        return path.join(dirPath || '.', p)
-      }
-      const patched = { ...opts }
-      if (patched.dirPath) patched.dirPath = resolvePath(patched.dirPath)
-      super(patched)
-    }
-
-    // Provide download to satisfy WeightsProvider when files already exist locally.
-    async download(fileName, { diskPath } = {}) {
-      const baseDir =
-        diskPath && (diskPath.startsWith('/') || /^[A-Za-z]:/.test(diskPath))
-          ? diskPath
-          : path.join(dirPath || process.cwd(), diskPath || '.')
-
-      const destPath = path.join(baseDir, fileName)
-      // Try to find model files in the test source directory (dynamically determined)
-      const srcPath = TEST_SOURCE_ROOT 
-        ? path.join(TEST_SOURCE_ROOT, 'model', fileName)
-        : path.join(__dirname, '../test/model', fileName)
-
-      try {
-        fs.mkdirSync(path.dirname(destPath), { recursive: true })
-        if (fs.existsSync(srcPath)) {
-          fs.copyFileSync(srcPath, destPath)
-        } else {
-          // If the source is missing, create an empty placeholder so downstream skips download.
-          fs.writeFileSync(destPath, '')
-        }
-      } catch (err) {
-        console.warn('FilesystemDL download failed for ' + fileName + ': ' + err.message)
-        throw err
-      }
-
-      return { ['await']: async () => {} }
-    }
-  }
-  // Override export so downstream requires get the patched class
-  try {
-    const modId = require.resolve('@qvac/dl-filesystem')
-    if (require.cache && require.cache[modId]) {
-      require.cache[modId].exports = FilesystemDL
-    }
-  } catch (_) {}
-} catch (_) {}
 const ensureProcess = () => {
   if (typeof globalThis.process === 'undefined') {
     try {
@@ -711,27 +658,10 @@ let dirPath = null
  * @param {Object} assets - Map of asset project paths to actual URIs
  * @returns {Promise<string>}
  */
-async function init(dirPathInput, assets = {}) {
+async function init(path, assets = {}) {
   try {
-    dirPath = dirPathInput
+    dirPath = path
     global.assetPaths = assets
-    global.__TEST_DIR__ = dirPath
-    if (typeof process !== 'undefined' && typeof process.chdir === 'function') {
-      try {
-        process.chdir(dirPath)
-      } catch (err) {
-        console.warn(\`process.chdir failed: \${err.message}\`)
-      }
-    }
-    // Ensure a default model directory exists for integration tests
-    try {
-      const modelDir = path.join(dirPath, 'test', 'model')
-      if (!fs.existsSync(modelDir)) {
-        fs.mkdirSync(modelDir, { recursive: true })
-      }
-    } catch (err) {
-      console.warn(\`Failed to create model directory: \${err.message}\`)
-    }
     console.log(\`Initialized with dirPath: \${dirPath}\`)
     console.log(\`Asset paths:\`, Object.keys(global.assetPaths))
     return 'INITIALIZED'
@@ -771,8 +701,6 @@ ${integrationFiles.filter(file => file && file.bundlePath).map(file => {
   return `  '${file.lookupKey}': () => require('${file.bundlePath}')`
 }).join(',\n')}
 }
-
-const CLI_MODE = process.env.QVAC_BACKEND_CLI === '1'
 
 async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   const loader = integrationModuleLoaders[relativeModulePath]
@@ -814,7 +742,7 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
 }
 
 const originalRunIntegrationModule =
-  typeof global.runIntegrationModule === 'function' && !CLI_MODE
+  typeof global.runIntegrationModule === 'function'
     ? global.runIntegrationModule
     : null
 
@@ -864,8 +792,8 @@ ${testFunctions.map(fn => {
 async function handleInit(req) {
     try {
         const data = JSON.parse(req.data.toString('utf8'))
-        const { dirPath: incomingPath, assetPaths } = data
-        const result = await init(incomingPath, assetPaths || {})
+        const { dirPath: path, assetPaths } = data
+        const result = await init(path, assetPaths || {})
         req.reply(result)
     } catch (error) {
         console.error('Init error:', error)
@@ -937,67 +865,7 @@ async function handleRunTest(req) {
 }
 
 // Initialize RPC server
-if (CLI_MODE) {
-    (async () => {
-        const nodePath = require('bare-path')
-        const nodeFs = require('bare-fs')
-        const runDir = nodePath.resolve(process.env.QVAC_BACKEND_DIR || nodePath.join(__dirname, '..', 'test', 'mobile'))
-        const assetRoot = nodePath.resolve(process.env.QVAC_BACKEND_ASSETS || nodePath.join(__dirname, '..', '..', 'testAssets'))
-        const assets = {}
-        const collect = (root, prefix = '') => {
-            if (!nodeFs.existsSync(root)) {
-                return
-            }
-            const entries = nodeFs.readdirSync(root, { withFileTypes: true })
-            for (const entry of entries) {
-                const abs = nodePath.join(root, entry.name)
-                const rel = prefix ? \`\${prefix}/\${entry.name}\` : entry.name
-                if (entry.isDirectory()) {
-                    collect(abs, rel)
-                } else {
-                    const key = \`../../testAssets/\${rel.split(nodePath.sep).join('/')}\`
-                    assets[key] = abs
-                }
-            }
-        }
-        collect(assetRoot)
-        await init(runDir, assets)
-        const requested = process.argv.slice(2)
-        const queue = requested.length > 0 ? requested : Object.keys(testFunctionMap)
-        let failed = false
-        for (const name of queue) {
-            const fn = testFunctionMap[name]
-            if (typeof fn !== 'function') {
-                console.error(\`[CLI] Unknown test '\${name}'\`)
-                failed = true
-                continue
-            }
-            console.log(\`[CLI] >>> \${name}\`)
-            try {
-                const started = Date.now()
-                const result = await fn(runDir, getAssetPath, null)
-                const elapsed = Date.now() - started
-                if (typeof result !== 'undefined') {
-                    console.log(\`[CLI] <<< \${name} OK (\${elapsed}ms)\`, result)
-                } else {
-                    console.log(\`[CLI] <<< \${name} OK (\${elapsed}ms)\`)
-                }
-            } catch (err) {
-                failed = true
-                console.error(\`[CLI] !!! \${name} failed:\`, err && err.stack ? err.stack : err)
-            }
-        }
-        if (failed) {
-            process.exit(1)
-        }
-    })().catch((err) => {
-        console.error('[CLI] Fatal backend error:', err && err.stack ? err.stack : err)
-        process.exit(1)
-    })
-}
-
-if (!CLI_MODE) {
-__RPC_STUB__ = new RPC(BareKit.IPC, (req) => {
+const rpc = new RPC(BareKit.IPC, (req) => {
     switch (req.command) {
         case INIT:
             handleInit(req)
@@ -1009,7 +877,6 @@ __RPC_STUB__ = new RPC(BareKit.IPC, (req) => {
             req.reply(\`Unknown command: \${req.command}\`)
     }
 })
-}
 `
 }
 
@@ -1143,13 +1010,6 @@ module.exports = require('${packageName}')
 module.exports = require('${packageName}/addon.js')
 `
   fs.writeFileSync(addonShimPath, addonShim, 'utf8')
-
-  const settingsShimPath = path.join(backendDir, 'settings.js')
-  const settingsShim = `'use strict'
-
-module.exports = require('${packageName}/settings.js')
-`
-  fs.writeFileSync(settingsShimPath, settingsShim, 'utf8')
 
   const bindingShimPath = path.join(backendDir, 'binding.js')
   const bindingShim = `'use strict'
@@ -1367,7 +1227,6 @@ ${allFiles.map(f => `  {
     modulePath: require('../testAssets/${f.replace(/\\/g, '/')}')
   }`).join(',\n')}
 ]
-export default ASSET_FILES
 `
   
   fs.writeFileSync(outputFile, manifestContent, 'utf8')
@@ -1421,7 +1280,6 @@ export const TEST_FUNCTIONS = ${JSON.stringify(testFunctionNames, null, 2)}
 export const TEST_CONFIG = {
 ${configEntriesStr || '  // No pre-test configurations detected'}
 }
-export default { TEST_FUNCTIONS, TEST_CONFIG }
 `
   
   fs.writeFileSync(configPath, configContent, 'utf8')
@@ -1593,8 +1451,7 @@ function main() {
   installTestDependencies(addonPackageJson, allTestDependencies, projectRoot)
   
   // Step 9: Generate backend.cjs
-  const testSourceRoot = path.resolve(testsDir)
-  const backendCode = generateBackend(testLogic, testFunctions, integrationFiles, testSourceRoot)
+  const backendCode = generateBackend(testLogic, testFunctions, integrationFiles)
   const backendPath = path.join(projectRoot, 'backend', 'backend.cjs')
   fs.writeFileSync(backendPath, backendCode, 'utf8')
   log(`Generated backend.cjs at: ${backendPath}`)

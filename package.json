@@ -7,7 +7,6 @@
   "scripts": {
     "bundle": "scripts/bundle.sh",
     "build": "node scripts/build-test-app.js",
-    "test:mobile:local": "bare scripts/run-mobile-tests.js",
     "android": "npm run bundle && expo run:android",
     "ios": "npm run bundle && expo run:ios --device",
     "barelog": "adb logcat '*:S bare:*'",
@@ -31,7 +30,6 @@
     "bare-fetch": "^2.5.0",
     "bare-process": "^4.2.2",
     "bare-rpc": "^0.2.13",
-    "brittle": "^3.19.1",
     "corestore": "^7.7.0",
     "expo": "54.0.22",
     "expo-asset": "^12.0.9",
