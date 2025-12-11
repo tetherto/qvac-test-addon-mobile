@@ -704,56 +704,15 @@ ${integrationFiles.filter(file => file && file.bundlePath).map(file => {
 
 async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   const loader = integrationModuleLoaders[relativeModulePath]
-  if (loader) {
-    console.log(\`[integration-runner] Loading bundled module: \${relativeModulePath}\`)
-    const __prevCwd = typeof process.cwd === 'function' ? process.cwd() : null
-    try {
-      if (dirPath && typeof process.chdir === 'function') {
-        process.chdir(dirPath)
-      }
-      return loader(options)
-    } finally {
-      if (__prevCwd && typeof process.chdir === 'function') {
-        process.chdir(__prevCwd)
-      }
-    }
+  if (!loader) {
+    throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
-  const { pathToFileURL } = require('bare-url')
-  const fs = require('bare-fs')
-  const path = require('bare-path')
-  const fallbackPath = path.join(__dirname, relativeModulePath)
-  if (!fs.existsSync(fallbackPath)) {
-    console.warn(\`[integration-runner] Missing module: \${relativeModulePath}\`)
-    return 'missing'
-  }
-  const moduleUrl = pathToFileURL(fallbackPath).href
-  const __prevCwd = typeof process.cwd === 'function' ? process.cwd() : null
-  try {
-    if (dirPath && typeof process.chdir === 'function') {
-      process.chdir(dirPath)
-    }
-    await import(moduleUrl)
-    return fallbackPath
-  } finally {
-    if (__prevCwd && typeof process.chdir === 'function') {
-      process.chdir(__prevCwd)
-    }
-  }
+  console.log(\`[integration-runner] Loading bundled module: \${relativeModulePath}\`)
+  return loader(options)
 }
 
-const originalRunIntegrationModule =
-  typeof global.runIntegrationModule === 'function'
-    ? global.runIntegrationModule
-    : null
-
 global.runIntegrationModule = async function(relativeModulePath, options = {}) {
-  if (integrationModuleLoaders[relativeModulePath]) {
-    return loadBundledIntegrationModule(relativeModulePath, options)
-  }
-  if (originalRunIntegrationModule) {
-    return originalRunIntegrationModule(relativeModulePath, options)
-  }
-  throw new Error(\`Integration module not found: \${relativeModulePath}\`)
+  return loadBundledIntegrationModule(relativeModulePath, options)
 }
 
 // Map of test functions
