@@ -75,7 +75,7 @@ This is a React Native + Bare runtime application that:
 From the template project root:
 
 ```bash
-npm run build <addon-source>
+npm run build <addon-source> [mobile-tests-dir]
 ```
 
 The build command supports multiple input formats:
@@ -99,6 +99,17 @@ npm run build @qvac/llm-llamacpp
 ```bash
 npm run build @qvac/llm-llamacpp@0.3.1
 ```
+
+**Override mobile tests directory (bypass packaged tests):**
+```bash
+npm run build @qvac/llm-llamacpp@0.5.6 ./path/to/mobile/tests
+```
+or with a local addon:
+```bash
+npm run build ../qvac-lib-infer-llamacpp-llm ./path/to/mobile/tests
+```
+- All `.cjs` files in `./path/to/mobile/tests` are used as the mobile test source.
+- If `./path/to/mobile/tests/testAssets` exists, those assets are copied into the app; otherwise no assets are bundled (empty manifest).
 
 This script will:
 - ✅ Extract test code from addon's `test/mobile/test.cjs`

@@ -9,22 +9,36 @@ const { execSync } = require('child_process')
 /**
  * Build Test App Script
  * 
+ * Usage:
+ *   node build-test-app.js <addon-path-or-tgz-or-package> [mobile-tests-dir]
+ * 
+ * If mobile-tests-dir is not provided, defaults to test/mobile within the installed addon package.
+ * If that path doesn't exist, the script will exit with an error and instructions.
+ * 
  * This script:
  * 1. Takes an addon path, .tgz file, or published npm package name
- * 2. Reads ALL .cjs files from test/mobile/ directory of the addon
- * 3. Combines all test files (constants, helpers, test functions)
- * 4. Extracts individual test functions (async function declarations)
- * 5. Generates backend.cjs with individual test runners and error handling
- * 6. Generates testConfig.js with list of test functions
- * 7. Generates e2e/tests/app.test.js with WebDriver test cases
- * 8. Installs the addon package and dependencies
- * 9. Bundles the app
+ * 2. Takes an optional tests directory (defaults to test/mobile within the installed addon package)
+ * 3. Reads ALL .cjs files from the test/mobile/ directory
+ * 4. Combines all test files (constants, helpers, test functions)
+ * 5. Extracts individual test functions (async function declarations)
+ * 6. Generates backend.cjs with individual test runners and error handling
+ * 7. Generates testConfig.js with list of test functions
+ * 8. Generates e2e/tests/app.test.js with WebDriver test cases
+ * 9. Installs the addon package and dependencies
+ * 10. Bundles the app
  * 
- * Supported input formats:
+ * Supported addon input formats:
  * - Local directory: ./path/to/addon
  * - Local .tgz file: ./path/to/addon.tgz
  * - Published package: my-addon or @scope/my-addon
  * - Published package with version: my-addon@1.0.0 or @scope/my-addon@1.0.0
+ * 
+ * Examples:
+ *   # Use default tests from installed package (if available)
+ *   node build-test-app.js @qvac/llm-llamacpp
+ * 
+ *   # Use custom tests directory
+ *   node build-test-app.js ../addon-source ../addon-source/test/mobile
  * 
  * Test file organization:
  * - All .cjs files in test/mobile/ are automatically ordered based on require() dependencies
@@ -55,17 +69,71 @@ function error(message) {
   process.exit(1)
 }
 
+function copyDirectoryRecursive(src, dest) {
+  const entries = fs.readdirSync(src, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name)
+    const destPath = path.join(dest, entry.name)
+
+    if (entry.isDirectory()) {
+      fs.mkdirSync(destPath, { recursive: true })
+      copyDirectoryRecursive(srcPath, destPath)
+    } else {
+      fs.copyFileSync(srcPath, destPath)
+    }
+  }
+}
+
+/**
+ * Get package name from addon source (before installation)
+ * Works with directories, .tgz files, and npm package names
+ */
+function getPackageNameFromSource(addonSource, isLocalPath) {
+  if (!isLocalPath) {
+    // Extract package name from published package (handle @scope/name@version)
+    const nameWithoutVersion = addonSource.split('@').filter(Boolean)
+    if (addonSource.startsWith('@')) {
+      return `@${nameWithoutVersion[0]}`
+    } else {
+      return nameWithoutVersion[0]
+    }
+  }
+  
+  const stats = fs.statSync(addonSource)
+  const isDirectory = stats.isDirectory()
+  
+  if (isDirectory) {
+    // Read package.json from directory
+    const sourcePkgPath = path.join(addonSource, 'package.json')
+    if (!fs.existsSync(sourcePkgPath)) {
+      error(`No package.json found in directory: ${addonSource}`)
+    }
+    const sourcePkg = JSON.parse(fs.readFileSync(sourcePkgPath, 'utf8'))
+    return sourcePkg.name
+  } else {
+    // Extract package name from .tgz
+    const output = execSync(`tar -xzOf "${addonSource}" package/package.json`, {
+      encoding: 'utf8'
+    })
+    const pkg = JSON.parse(output)
+    return pkg.name
+  }
+}
+
 /**
  * Parse command line arguments
  */
 function parseArgs() {
   const args = process.argv.slice(2)
   
-  if (args.length === 0) {
-    error('Usage: node build-test-app.js <addon-path-or-tgz-or-package>')
+  if (args.length < 1) {
+    error('Usage: node build-test-app.js <addon-path-or-tgz-or-package> [mobile-tests-dir]\n' +
+          '  If mobile-tests-dir is not provided, will use test/mobile within the installed addon package')
   }
   
   const addonSource = args[0]
+  const projectRoot = path.resolve(__dirname, '..')
   
   // Check if it's a local path (directory or .tgz file)
   const isLocalPath = fs.existsSync(addonSource)
@@ -76,7 +144,33 @@ function parseArgs() {
     log(`'${addonSource}' is not a local path, treating as published package name`)
   }
   
-  return { addonSource, isLocalPath }
+  // Get the package name from the addon source
+  const packageName = getPackageNameFromSource(addonSource, isLocalPath)
+  log(`Package name: ${packageName}`)
+  
+  // Determine tests directory
+  let testsDir
+  if (args.length >= 2) {
+    testsDir = path.resolve(args[1])
+  } else {
+    // Default to test/mobile within the addon package
+    testsDir = path.join(projectRoot, 'node_modules', packageName, 'test', 'mobile')
+    log(`No tests directory provided, will use default: ${testsDir}`)
+  }
+
+  // For explicit test directories, validate immediately
+  if (args.length >= 2) {
+    if (!fs.existsSync(testsDir)) {
+      error(`Provided mobile tests directory does not exist: ${testsDir}`)
+    }
+    if (!fs.statSync(testsDir).isDirectory()) {
+      error(`Provided mobile tests path is not a directory: ${testsDir}`)
+    }
+    log(`Using mobile tests directory: ${testsDir}`)
+  }
+  // For default path, we'll validate after package installation
+  
+  return { addonSource, isLocalPath, testsDir, packageName, usingDefaultTestsDir: args.length < 2 }
 }
 
 /**
@@ -218,7 +312,7 @@ function installAddonPackage(addonSource, isLocalPath, projectRoot) {
   if (!isLocalPath) {
     // It's a published package name, install directly from npm
     log(`Installing package from npm: ${addonSource}`)
-    execSync(`npm install "${addonSource}"`, {
+    execSync(`npm install --legacy-peer-deps "${addonSource}"`, {
       cwd: projectRoot,
       stdio: 'inherit'
     })
@@ -238,7 +332,7 @@ function installAddonPackage(addonSource, isLocalPath, projectRoot) {
       log(`Created package: ${tgzPath}`)
       
       // Install the .tgz file
-      execSync(`npm install "${tgzPath}"`, {
+      execSync(`npm install --legacy-peer-deps "${tgzPath}"`, {
         cwd: projectRoot,
         stdio: 'inherit'
       })
@@ -247,7 +341,7 @@ function installAddonPackage(addonSource, isLocalPath, projectRoot) {
       fs.unlinkSync(tgzPath)
     } else {
       // It's a .tgz file, install directly
-      execSync(`npm install "${addonSource}"`, {
+      execSync(`npm install --legacy-peer-deps "${addonSource}"`, {
         cwd: projectRoot,
         stdio: 'inherit'
       })
@@ -366,25 +460,24 @@ function topologicalSort(filesWithDeps) {
  * Reads all .cjs files from test/mobile/ directory and combines them
  * Smart ordering: constants → helpers → tests (auto-detected)
  */
-function readTestCode(packageName, projectRoot) {
-  const addonPath = path.join(projectRoot, 'node_modules', packageName)
-  const testDirPath = path.join(addonPath, 'test', 'mobile')
+function readTestCode(testsDir) {
+  const baseDir = testsDir
   
-  if (!fs.existsSync(testDirPath)) {
-    error(`Test directory not found: ${testDirPath}\nMake sure the addon has test/mobile/ directory`)
+  if (!fs.existsSync(baseDir)) {
+    error(`Test directory not found: ${baseDir}`)
   }
   
   // Read all .cjs files
-  const allFiles = fs.readdirSync(testDirPath)
+  const allFiles = fs.readdirSync(baseDir)
     .filter(file => file.endsWith('.cjs'))
   
   if (allFiles.length === 0) {
-    error(`No .cjs test files found in: ${testDirPath}`)
+    error(`No .cjs test files found in: ${baseDir}`)
   }
   
   // Read content and extract dependencies
   const filesWithDeps = allFiles.map(file => {
-    const filePath = path.join(testDirPath, file)
+    const filePath = path.join(baseDir, file)
     const content = fs.readFileSync(filePath, 'utf8')
     const dependencies = extractLocalDependencies(content, file)
     return { file, content, dependencies }
@@ -399,11 +492,21 @@ function readTestCode(packageName, projectRoot) {
   const combinedCode = sortedFiles.map(file => {
     const fileData = filesWithDeps.find(f => f.file === file)
     // Strip out the require('./...') statements since we're combining files
-    const contentWithoutLocalRequires = fileData.content.replace(
+    let contentWithoutLocalRequires = fileData.content.replace(
       /require\s*\(\s*['"]\.\/([\w-]+)(\.cjs)?['"]\s*\)\s*\n?/g,
       ''
     )
-    return `// ===== From ${file} =====\n${contentWithoutLocalRequires}\n`
+
+    const moduleExportIndex = contentWithoutLocalRequires.indexOf('module.exports')
+    if (moduleExportIndex !== -1) {
+      contentWithoutLocalRequires = contentWithoutLocalRequires.slice(0, moduleExportIndex)
+    }
+
+    const fileTestFunctions = parseAsyncFunctions(contentWithoutLocalRequires).map(fn => fn.name)
+    const exportBlock = fileTestFunctions.length
+      ? `\nObject.assign(globalThis, { ${fileTestFunctions.join(', ')} });\n`
+      : '\n'
+    return `// ===== From ${file} =====\n(() => {\n${contentWithoutLocalRequires}\n${exportBlock}})();\n`
   }).join('\n')
   
   return combinedCode
@@ -452,7 +555,7 @@ function extractTestLogic(testCode) {
  * Looks for async function declarations like: async function testFoo() {...}
  * Returns array of objects with parameter details
  */
-function extractTestFunctions(testCode) {
+function parseAsyncFunctions(testCode) {
   const functionRegex = /async\s+function\s+(\w+)\s*\(([^)]*)\)/g
   const functions = []
   let match
@@ -464,7 +567,8 @@ function extractTestFunctions(testCode) {
     // Exclude init and helper functions (starting with _)
     if (functionName !== 'init' && !functionName.startsWith('_')) {
       // Parse parameter names
-      const params = paramsString ? paramsString.split(',').map(p => p.trim()) : []
+      const rawParams = paramsString ? paramsString.split(',').map(p => p.trim()) : []
+    const params = rawParams.map(p => p.split('=')[0].trim())
       
       // Detect parameter types
       const hasDirPathParam = params.includes('dirPath')
@@ -477,27 +581,70 @@ function extractTestFunctions(testCode) {
         p.startsWith('audioData') ||
         p.startsWith('buffer')
       )
+
+      const allowedParams = new Set([
+        'dirPath',
+        'getAssetPath',
+        'preTestData',
+        'options',
+        'audioData',
+        'buffer',
+        'preTestDataBuffer'
+      ])
+      const hasUnknownParams = params.some(p => p.length > 0 && !allowedParams.has(p))
       
       functions.push({ 
         name: functionName, 
         params,
         hasDirPathParam,
         hasGetAssetPathParam,
-        hasAudioDataParam
+        hasAudioDataParam,
+        hasUnknownParams
       })
     }
   }
   
-  log(`Found ${functions.length} test function(s): ${functions.map(f => f.name).join(', ')}`)
   return functions
+}
+
+function extractTestFunctions(testCode) {
+  const functions = parseAsyncFunctions(testCode)
+  const runnableFunctions = functions.filter(fn => !fn.hasUnknownParams)
+  const skippedFunctions = functions.filter(fn => fn.hasUnknownParams)
+  log(`Found ${functions.length} async function(s), using ${runnableFunctions.length}: ${runnableFunctions.map(f => f.name).join(', ')}`)
+  if (skippedFunctions.length > 0) {
+    log(`Skipping ${skippedFunctions.length} helper function(s) that require unsupported parameters: ${skippedFunctions.map(f => f.name).join(', ')}`)
+  }
+  return runnableFunctions
 }
 
 /**
  * Generate backend.cjs with injected test logic
  */
-function generateBackend(testLogic, testFunctions) {
+function generateBackend(testLogic, testFunctions, integrationFiles = []) {
   return `const { INIT, RUN_TEST } = require('./api.cjs')
 const RPC = require('bare-rpc')
+const fs = require('bare-fs')
+const path = require('bare-path')
+const ensureProcess = () => {
+  if (typeof globalThis.process === 'undefined') {
+    try {
+      globalThis.process = require('bare-process')
+    } catch (e) {
+      console.warn('bare-process not available, some integration tests may fail:', e.message)
+    }
+  }
+}
+const testRuns = {}
+function logRun(testName, stage, detail) {
+  const timestamp = new Date().toISOString()
+  if (!testRuns[testName]) {
+    testRuns[testName] = { stages: [] }
+  }
+  testRuns[testName].stages.push({ stage, timestamp, detail })
+  console.log(\`[TestRunner][\${timestamp}] \${testName} -> \${stage}\${detail ? ' :: ' + detail : ''}\`)
+}
+ensureProcess()
 
 // ============================================
 // STATIC INIT FUNCTIONALITY
@@ -549,38 +696,54 @@ ${testLogic}
 // END INJECTED TEST CODE
 // ============================================
 
+const integrationModuleLoaders = {
+${integrationFiles.filter(file => file && file.bundlePath).map(file => {
+  return `  '${file.lookupKey}': () => require('${file.bundlePath}')`
+}).join(',\n')}
+}
+
+async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
+  const loader = integrationModuleLoaders[relativeModulePath]
+  if (!loader) {
+    throw new Error(\`Integration module not found: \${relativeModulePath}\`)
+  }
+  console.log(\`[integration-runner] Loading bundled module: \${relativeModulePath}\`)
+  return loader(options)
+}
+
+global.runIntegrationModule = async function(relativeModulePath, options = {}) {
+  return loadBundledIntegrationModule(relativeModulePath, options)
+}
+
 // Map of test functions
 const testFunctionMap = {
 ${testFunctions.map(fn => {
+  const wrapperArgs = '(dirPathArg, getAssetPathArg, preTestData)'
+  const fnRef = `globalThis['${fn.name}']`
+
   // Case 1: Function takes audioData/buffer directly (e.g., test_mic_transcription(audioData))
-  // These typically expect pre-test data as the first/only parameter
   if (fn.hasAudioDataParam && !fn.hasDirPathParam && !fn.hasGetAssetPathParam) {
-    return `  '${fn.name}': (preTestData) => ${fn.name}(preTestData)`
+    return `  '${fn.name}': ${wrapperArgs} => ${fnRef}(preTestData)`
   }
-  
-  // Case 2: Function has standard params (dirPath, getAssetPath)
+
+  // Case 2: Function has standard params (dirPath, getAssetPath) and optionally audio data
   const params = []
   if (fn.hasDirPathParam) {
-    params.push('dirPath')
+    params.push('dirPathArg')
   }
   if (fn.hasGetAssetPathParam) {
-    params.push('getAssetPath')
+    params.push('getAssetPathArg')
   }
-  
-  // If function has standard parameters, wrap it to pass them
+  if (fn.hasAudioDataParam) {
+    params.push('preTestData')
+  }
+
   if (params.length > 0) {
-    // Check if function also has audioData param (mixed signature)
-    if (fn.hasAudioDataParam) {
-      // Pass standard params first, then preTestData as audioData
-      return `  '${fn.name}': (preTestData) => ${fn.name}(${params.join(', ')}, preTestData)`
-    } else {
-      // Standard function without audioData param
-      return `  '${fn.name}': (preTestData) => ${fn.name}(${params.join(', ')})`
-    }
+    return `  '${fn.name}': ${wrapperArgs} => ${fnRef}(${params.join(', ')})`
   }
-  
-  // Case 3: No parameters - just reference the function directly
-  return `  '${fn.name}': ${fn.name}`
+
+  // Case 3: No parameters - exposure only
+  return `  '${fn.name}': ${wrapperArgs} => ${fnRef}()`
 }).join(',\n')}
 }
 
@@ -611,6 +774,7 @@ async function handleRunTest(req) {
         }
         
         console.log(\`Running test: \${testName}\`)
+        logRun(testName, 'start')
         
         // Process preTestData - convert Buffer-like objects back to actual Buffers
         let processedPreTestData = preTestData
@@ -628,16 +792,21 @@ async function handleRunTest(req) {
         }
         
         try {
-            // Pass processedPreTestData to the test function
-            const result = await testFunctionMap[testName](processedPreTestData)
-            console.log(\`Test '\${testName}' passed\`)
+            // Pass runtime context along with any pre-test payload to the test function
+            const startedAt = Date.now()
+            const result = await testFunctionMap[testName](dirPath, getAssetPath, processedPreTestData)
+            const duration = Date.now() - startedAt
+            logRun(testName, 'end', \`duration=\${duration}ms\`)
+            console.log(\`Test '\${testName}' passed in \${duration}ms\`)
             req.reply(JSON.stringify({ 
                 success: true, 
                 testName,
-                result 
+                result,
+                duration 
             }))
         } catch (error) {
             console.error(\`Test '\${testName}' failed:\`, error)
+            logRun(testName, 'error', error.message)
             req.reply(JSON.stringify({ 
                 success: false, 
                 testName,
@@ -713,28 +882,57 @@ function installTestDependencies(addonPackageJson, testDependencies, projectRoot
     }
   }
   
-  if (depsToInstall.length > 0) {
-    log(`Installing test dependencies: ${depsToInstall.join(', ')}`)
-    execSync(`npm install ${depsToInstall.join(' ')}`, {
+  if (depsToInstall.length === 0) {
+    log('No additional test dependencies needed')
+    return
+  }
+
+  const missingDeps = depsToInstall.filter(dep => {
+    const pkgName = extractPackageName(dep)
+    try {
+      require.resolve(pkgName, { paths: [projectRoot] })
+      return false
+    } catch (_) {
+      return true
+    }
+  })
+
+  if (missingDeps.length === 0) {
+    log('All test dependencies already installed; skipping npm install')
+    return
+  }
+
+  log(`Installing test dependencies: ${missingDeps.join(', ')}`)
+  try {
+    execSync(`npm install --legacy-peer-deps ${missingDeps.join(' ')}`, {
       cwd: projectRoot,
       stdio: 'inherit'
     })
-  } else {
-    log('No additional test dependencies needed')
+  } catch (err) {
+    log(`Warning: failed to install optional test dependencies (${missingDeps.join(', ')}). Continuing anyway.`)
   }
+}
+
+function extractPackageName(spec) {
+  if (spec.startsWith('@')) {
+    const secondAt = spec.indexOf('@', 1)
+    if (secondAt === -1) return spec
+    return spec.slice(0, secondAt)
+  }
+  const atIndex = spec.indexOf('@')
+  return atIndex === -1 ? spec : spec.slice(0, atIndex)
 }
 
 /**
  * Copy test assets if they exist
  */
-function copyTestAssets(packageName, projectRoot) {
-  const addonPath = path.join(projectRoot, 'node_modules', packageName)
-  const testAssetsSource = path.join(addonPath, 'test', 'mobile', 'testAssets')
+function copyTestAssets(testsDir, projectRoot) {
+  const testAssetsSource = path.join(testsDir, 'testAssets')
   const testAssetsTarget = path.join(projectRoot, 'testAssets')
   
   if (!fs.existsSync(testAssetsSource)) {
-    log('No testAssets folder found in addon, skipping...')
-    return false
+    // No assets provided in tests dir; skip copy without warning
+    return { copied: false, source: null }
   }
   
   log('Copying test assets...')
@@ -744,27 +942,185 @@ function copyTestAssets(packageName, projectRoot) {
     fs.rmSync(testAssetsTarget, { recursive: true })
   }
   fs.mkdirSync(testAssetsTarget, { recursive: true })
-  
-  // Copy files recursively
-  function copyRecursive(src, dest) {
-    const entries = fs.readdirSync(src, { withFileTypes: true })
-    
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name)
-      const destPath = path.join(dest, entry.name)
-      
-      if (entry.isDirectory()) {
-        fs.mkdirSync(destPath, { recursive: true })
-        copyRecursive(srcPath, destPath)
-      } else {
-        fs.copyFileSync(srcPath, destPath)
-      }
-    }
-  }
-  
-  copyRecursive(testAssetsSource, testAssetsTarget)
+  copyDirectoryRecursive(testAssetsSource, testAssetsTarget)
   log('Test assets copied successfully')
-  return true
+  return { copied: true, source: testAssetsSource }
+}
+
+/**
+ * Generate shim files in backend/ that redirect requires to the installed addon package.
+ * This allows integration tests to keep using relative paths like ../../index.js while
+ * actual logic comes from node_modules/@scope/package.
+ */
+function generateAddonShimFiles(packageName, projectRoot) {
+  const backendDir = path.join(projectRoot, 'backend')
+  fs.mkdirSync(backendDir, { recursive: true })
+
+  const indexShimPath = path.join(backendDir, 'index.js')
+  const indexShim = `'use strict'
+
+module.exports = require('${packageName}')
+`
+  fs.writeFileSync(indexShimPath, indexShim, 'utf8')
+
+  const addonShimPath = path.join(backendDir, 'addon.js')
+  const addonShim = `'use strict'
+
+module.exports = require('${packageName}/addon.js')
+`
+  fs.writeFileSync(addonShimPath, addonShim, 'utf8')
+
+  const bindingShimPath = path.join(backendDir, 'binding.js')
+  const bindingShim = `'use strict'
+
+module.exports = require('${packageName}/binding.js')
+`
+  fs.writeFileSync(bindingShimPath, bindingShim, 'utf8')
+
+  const addonLoggingShimPath = path.join(backendDir, 'addonLogging.js')
+  const addonLoggingShim = `'use strict'
+
+module.exports = require('${packageName}/addonLogging.js')
+`
+  fs.writeFileSync(addonLoggingShimPath, addonLoggingShim, 'utf8')
+
+  log('Generated addon shim files in backend/')
+}
+
+/**
+ * Copy integration tests into backend/integration
+ * Returns null if no integration directory exists
+ */
+function syncIntegrationTests(testsDir, projectRoot) {
+  const testSourceRoot = path.resolve(path.join(testsDir, '..'))
+  const integrationSourceDir = path.join(testSourceRoot, 'integration')
+
+  if (!fs.existsSync(integrationSourceDir)) {
+    log('No integration directory found adjacent to test/mobile (../integration). Skipping integration tests.')
+    return null
+  }
+
+  const testTargetRoot = path.join(projectRoot, 'backend', 'test')
+  fs.rmSync(testTargetRoot, { recursive: true, force: true })
+  fs.mkdirSync(testTargetRoot, { recursive: true })
+  copyDirectoryRecursive(testSourceRoot, testTargetRoot)
+  log(`Copied test directory from ${testSourceRoot} to ${testTargetRoot}`)
+
+  const integrationTargetDir = path.join(testTargetRoot, 'integration')
+  return {
+    sourceRoot: integrationSourceDir,
+    targetRoot: integrationTargetDir,
+    bundlePrefix: './test/integration/'
+  }
+}
+
+function patchIntegrationUtilsForMobile(projectRoot) {
+  const utilsPath = path.join(projectRoot, 'backend', 'test', 'integration', 'utils.js')
+  if (!fs.existsSync(utilsPath)) {
+    log('No test integration utils found to patch for mobile; skipping')
+    return
+  }
+
+  const originalSnippet = `const modelDir = path.resolve(__dirname, '../model')`
+  const replacementSnippet = `const writableRoot = globalThis.__TEST_DIR__ || process.env.QVAC_TEST_DIR || path.join(process.cwd(), '.')
+const modelDir = path.join(writableRoot, 'test', 'model')`
+
+  const content = fs.readFileSync(utilsPath, 'utf8')
+  if (!content.includes(originalSnippet)) {
+    log('Integration utils already patched for mobile; skipping')
+    return
+  }
+
+  const patched = content.replace(originalSnippet, replacementSnippet)
+  fs.writeFileSync(utilsPath, patched, 'utf8')
+  log('Patched integration utils to use mobile writable directory')
+}
+
+/**
+ * Collect integration modules referenced by integration.auto.cjs
+ */
+function parseIntegrationAutoModules(integrationAutoPath) {
+  if (!fs.existsSync(integrationAutoPath)) {
+    return []
+  }
+
+  const integrationAutoDir = path.dirname(integrationAutoPath)
+  const content = fs.readFileSync(integrationAutoPath, 'utf8')
+  const regex = /runIntegrationModule\(\s*['"]([^'"]+)['"]/g
+  const modules = new Map()
+  let match
+
+  while ((match = regex.exec(content)) !== null) {
+    const lookupKey = match[1]
+    const mapKey = lookupKey.replace(/\\/g, '/')
+    const absolutePath = path.resolve(integrationAutoDir, lookupKey)
+    if (!fs.existsSync(absolutePath)) {
+      log(`Warning: integration test '${lookupKey}' not found at ${absolutePath}`)
+      continue
+    }
+    modules.set(mapKey, {
+      lookupKey,
+      absolutePath
+    })
+  }
+
+  return Array.from(modules.values())
+}
+
+/**
+ * Collect integration modules referenced by integration.auto.cjs in the provided tests dir
+ * Returns empty array if no integration tests are present
+ */
+function collectIntegrationModulesForTestsDir(testsDir, integrationCopyMeta) {
+  // If no integration directory was copied, skip integration modules entirely
+  if (!integrationCopyMeta) {
+    log('No integration tests to process (integration directory not present)')
+    return []
+  }
+
+  const integrationAutoPath = path.join(testsDir, 'integration.auto.cjs')
+
+  if (!fs.existsSync(integrationAutoPath)) {
+    log('No integration.auto.cjs found in test/mobile. Skipping integration tests.')
+    return []
+  }
+
+  const { sourceRoot, targetRoot, bundlePrefix } = integrationCopyMeta
+
+  const modules = parseIntegrationAutoModules(integrationAutoPath)
+
+  if (modules.length === 0) {
+    log('integration.auto.cjs found but no valid integration modules were detected')
+    return []
+  }
+
+  const mapped = []
+
+  for (const module of modules) {
+    const relativePath = path.relative(sourceRoot, module.absolutePath)
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      log(`Warning: ${module.lookupKey} lies outside copied integration source; skipping`)
+      continue
+    }
+
+    const copiedPath = path.join(targetRoot, relativePath)
+    if (!fs.existsSync(copiedPath)) {
+      log(`Warning: copied integration file missing for ${module.lookupKey} at ${copiedPath}`)
+      continue
+    }
+
+    const normalizedRelative = relativePath.split(path.sep).join('/')
+    const bundlePath = `${bundlePrefix}${normalizedRelative}`
+
+    mapped.push({
+      lookupKey: module.lookupKey,
+      bundlePath,
+      absolutePath: copiedPath
+    })
+  }
+
+  log(`Discovered ${mapped.length} integration module(s) to include`)
+  return mapped
 }
 
 /**
@@ -996,7 +1352,7 @@ function bundleApp(projectRoot) {
 function main() {
   log('Starting build process...')
   
-  const { addonSource, isLocalPath } = parseArgs()
+  const { addonSource, isLocalPath, testsDir, packageName, usingDefaultTestsDir } = parseArgs()
   const projectRoot = path.resolve(__dirname, '..')
   
   // Only resolve to absolute path if it's a local path
@@ -1008,12 +1364,24 @@ function main() {
   // Step 1: Install the addon package (whether directory, .tgz, or npm package)
   installAddonPackage(addonSourcePath, isLocalPath, projectRoot)
   
-  // Step 2: Get the installed package name
-  const packageName = getInstalledPackageName(addonSourcePath, isLocalPath)
-  log(`Package name: ${packageName}`)
+  // Step 2: Validate tests directory exists (if using default path)
+  if (usingDefaultTestsDir) {
+    if (!fs.existsSync(testsDir)) {
+      error(`Mobile tests directory does not exist: ${testsDir}\n\n` +
+            'The addon package does not include tests in its published version.\n' +
+            'Please provide a tests directory as the second argument:\n' +
+            '  node build-test-app.js <addon-path> <path-to-tests-dir>\n\n' +
+            'Example:\n' +
+            `  node build-test-app.js ${addonSource} ../path-to-addon-source/test/mobile`)
+    }
+    if (!fs.statSync(testsDir).isDirectory()) {
+      error(`Tests path is not a directory: ${testsDir}`)
+    }
+    log(`Using default tests directory: ${testsDir}`)
+  }
   
-  // Step 3: Read test code from node_modules
-  const testCode = readTestCode(packageName, projectRoot)
+  // Step 3: Read test code (testsDir is required)
+  const testCode = readTestCode(testsDir)
   
   // Step 4: Extract test logic
   const testLogic = extractTestLogic(testCode)
@@ -1021,24 +1389,34 @@ function main() {
   // Step 5: Extract test function names
   const testFunctions = extractTestFunctions(testCode)
   
-  // Step 6: Extract test dependencies
+  // Step 6: Copy and discover integration modules (if present)
+  const integrationCopyMeta = syncIntegrationTests(testsDir, projectRoot)
+  const integrationFiles = collectIntegrationModulesForTestsDir(testsDir, integrationCopyMeta)
   const testDependencies = extractTestDependencies(testCode)
-  log(`Test dependencies found: ${testDependencies.join(', ')}`)
+  log(`Test dependencies found: ${testDependencies.join(', ') || 'none'}`)
   
+  // Generate shim files so relative requires (../../index.js, ../../addon.js) resolve to the installed addon package.
+  generateAddonShimFiles(packageName, projectRoot)
+  if (integrationCopyMeta) {
+    patchIntegrationUtilsForMobile(projectRoot)
+  }
+
   // Step 7: Read addon's package.json
   const addonPackageJson = readAddonPackageJson(packageName, projectRoot)
+
+  const allTestDependencies = Array.from(new Set(testDependencies))
   
   // Step 8: Install test dependencies
-  installTestDependencies(addonPackageJson, testDependencies, projectRoot)
+  installTestDependencies(addonPackageJson, allTestDependencies, projectRoot)
   
   // Step 9: Generate backend.cjs
-  const backendCode = generateBackend(testLogic, testFunctions)
+  const backendCode = generateBackend(testLogic, testFunctions, integrationFiles)
   const backendPath = path.join(projectRoot, 'backend', 'backend.cjs')
   fs.writeFileSync(backendPath, backendCode, 'utf8')
   log(`Generated backend.cjs at: ${backendPath}`)
   
   // Step 10: Copy test assets
-  copyTestAssets(packageName, projectRoot)
+  const assetCopyResult = copyTestAssets(testsDir, projectRoot)
   
   // Step 11: Generate asset manifest
   log('Generating asset manifest...')

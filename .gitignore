@@ -20,6 +20,10 @@ tmp/
 # Generated files (from build-test-app.js)
 backend/backend.cjs
 backend/*.bundle
+backend/*.js
+backend/integration
+backend/addon
+backend/test
 testAssets/
 app/testConfig.js
 app/assetManifest.js
