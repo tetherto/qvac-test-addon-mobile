@@ -9,22 +9,36 @@ const { execSync } = require('child_process')
 /**
  * Build Test App Script
  * 
+ * Usage:
+ *   node build-test-app.js <addon-path-or-tgz-or-package> [mobile-tests-dir]
+ * 
+ * If mobile-tests-dir is not provided, defaults to test/mobile within the installed addon package.
+ * If that path doesn't exist, the script will exit with an error and instructions.
+ * 
  * This script:
  * 1. Takes an addon path, .tgz file, or published npm package name
- * 2. Reads ALL .cjs files from test/mobile/ directory of the addon
- * 3. Combines all test files (constants, helpers, test functions)
- * 4. Extracts individual test functions (async function declarations)
- * 5. Generates backend.cjs with individual test runners and error handling
- * 6. Generates testConfig.js with list of test functions
- * 7. Generates e2e/tests/app.test.js with WebDriver test cases
- * 8. Installs the addon package and dependencies
- * 9. Bundles the app
+ * 2. Takes an optional tests directory (defaults to test/mobile within the installed addon package)
+ * 3. Reads ALL .cjs files from the test/mobile/ directory
+ * 4. Combines all test files (constants, helpers, test functions)
+ * 5. Extracts individual test functions (async function declarations)
+ * 6. Generates backend.cjs with individual test runners and error handling
+ * 7. Generates testConfig.js with list of test functions
+ * 8. Generates e2e/tests/app.test.js with WebDriver test cases
+ * 9. Installs the addon package and dependencies
+ * 10. Bundles the app
  * 
- * Supported input formats:
+ * Supported addon input formats:
  * - Local directory: ./path/to/addon
  * - Local .tgz file: ./path/to/addon.tgz
  * - Published package: my-addon or @scope/my-addon
  * - Published package with version: my-addon@1.0.0 or @scope/my-addon@1.0.0
+ * 
+ * Examples:
+ *   # Use default tests from installed package (if available)
+ *   node build-test-app.js @qvac/llm-llamacpp
+ * 
+ *   # Use custom tests directory
+ *   node build-test-app.js ../addon-source ../addon-source/test/mobile
  * 
  * Test file organization:
  * - All .cjs files in test/mobile/ are automatically ordered based on require() dependencies
@@ -72,17 +86,54 @@ function copyDirectoryRecursive(src, dest) {
 }
 
 /**
+ * Get package name from addon source (before installation)
+ * Works with directories, .tgz files, and npm package names
+ */
+function getPackageNameFromSource(addonSource, isLocalPath) {
+  if (!isLocalPath) {
+    // Extract package name from published package (handle @scope/name@version)
+    const nameWithoutVersion = addonSource.split('@').filter(Boolean)
+    if (addonSource.startsWith('@')) {
+      return `@${nameWithoutVersion[0]}`
+    } else {
+      return nameWithoutVersion[0]
+    }
+  }
+  
+  const stats = fs.statSync(addonSource)
+  const isDirectory = stats.isDirectory()
+  
+  if (isDirectory) {
+    // Read package.json from directory
+    const sourcePkgPath = path.join(addonSource, 'package.json')
+    if (!fs.existsSync(sourcePkgPath)) {
+      error(`No package.json found in directory: ${addonSource}`)
+    }
+    const sourcePkg = JSON.parse(fs.readFileSync(sourcePkgPath, 'utf8'))
+    return sourcePkg.name
+  } else {
+    // Extract package name from .tgz
+    const output = execSync(`tar -xzOf "${addonSource}" package/package.json`, {
+      encoding: 'utf8'
+    })
+    const pkg = JSON.parse(output)
+    return pkg.name
+  }
+}
+
+/**
  * Parse command line arguments
  */
 function parseArgs() {
   const args = process.argv.slice(2)
   
-  if (args.length < 2) {
-    error('Usage: node build-test-app.js <addon-path-or-tgz-or-package> <mobile-tests-dir>')
+  if (args.length < 1) {
+    error('Usage: node build-test-app.js <addon-path-or-tgz-or-package> [mobile-tests-dir]\n' +
+          '  If mobile-tests-dir is not provided, will use test/mobile within the installed addon package')
   }
   
   const addonSource = args[0]
-  const testsDir = path.resolve(args[1])
+  const projectRoot = path.resolve(__dirname, '..')
   
   // Check if it's a local path (directory or .tgz file)
   const isLocalPath = fs.existsSync(addonSource)
@@ -92,16 +143,34 @@ function parseArgs() {
   if (!isLocalPath) {
     log(`'${addonSource}' is not a local path, treating as published package name`)
   }
-
-  if (!fs.existsSync(testsDir)) {
-    error(`Provided mobile tests directory does not exist: ${testsDir}`)
-  }
-  if (!fs.statSync(testsDir).isDirectory()) {
-    error(`Provided mobile tests path is not a directory: ${testsDir}`)
-  }
-  log(`Using mobile tests directory: ${testsDir}`)
   
-  return { addonSource, isLocalPath, testsDir }
+  // Get the package name from the addon source
+  const packageName = getPackageNameFromSource(addonSource, isLocalPath)
+  log(`Package name: ${packageName}`)
+  
+  // Determine tests directory
+  let testsDir
+  if (args.length >= 2) {
+    testsDir = path.resolve(args[1])
+  } else {
+    // Default to test/mobile within the addon package
+    testsDir = path.join(projectRoot, 'node_modules', packageName, 'test', 'mobile')
+    log(`No tests directory provided, will use default: ${testsDir}`)
+  }
+
+  // For explicit test directories, validate immediately
+  if (args.length >= 2) {
+    if (!fs.existsSync(testsDir)) {
+      error(`Provided mobile tests directory does not exist: ${testsDir}`)
+    }
+    if (!fs.statSync(testsDir).isDirectory()) {
+      error(`Provided mobile tests path is not a directory: ${testsDir}`)
+    }
+    log(`Using mobile tests directory: ${testsDir}`)
+  }
+  // For default path, we'll validate after package installation
+  
+  return { addonSource, isLocalPath, testsDir, packageName, usingDefaultTestsDir: args.length < 2 }
 }
 
 /**
@@ -581,7 +650,10 @@ try {
           : path.join(dirPath || process.cwd(), diskPath || '.')
 
       const destPath = path.join(baseDir, fileName)
-      const srcPath = path.join(__dirname, '../node_modules/@qvac/llm-llamacpp/test/model', fileName)
+      // Try to find model files in the test source directory (dynamically determined)
+      const srcPath = TEST_SOURCE_ROOT 
+        ? path.join(TEST_SOURCE_ROOT, 'model', fileName)
+        : path.join(__dirname, '../test/model', fileName)
 
       try {
         fs.mkdirSync(path.dirname(destPath), { recursive: true })
@@ -1067,45 +1139,29 @@ module.exports = require('${packageName}')
 
   const addonShimPath = path.join(backendDir, 'addon.js')
   const addonShim = `'use strict'
-const path = require('bare-path')
 
-const pkgJsonPath = require.resolve('${packageName}/package')
-const addonRoot = path.dirname(pkgJsonPath)
-
-module.exports = require(path.join(addonRoot, 'addon.js'))
+module.exports = require('${packageName}/addon.js')
 `
   fs.writeFileSync(addonShimPath, addonShim, 'utf8')
 
   const settingsShimPath = path.join(backendDir, 'settings.js')
   const settingsShim = `'use strict'
-const path = require('bare-path')
 
-const pkgJsonPath = require.resolve('${packageName}/package')
-const addonRoot = path.dirname(pkgJsonPath)
-
-module.exports = require(path.join(addonRoot, 'settings.js'))
+module.exports = require('${packageName}/settings.js')
 `
   fs.writeFileSync(settingsShimPath, settingsShim, 'utf8')
 
   const bindingShimPath = path.join(backendDir, 'binding.js')
   const bindingShim = `'use strict'
-const path = require('bare-path')
 
-const pkgJsonPath = require.resolve('${packageName}/package')
-const addonRoot = path.dirname(pkgJsonPath)
-
-module.exports = require(path.join(addonRoot, 'binding.js'))
+module.exports = require('${packageName}/binding.js')
 `
   fs.writeFileSync(bindingShimPath, bindingShim, 'utf8')
 
   const addonLoggingShimPath = path.join(backendDir, 'addonLogging.js')
   const addonLoggingShim = `'use strict'
-const path = require('bare-path')
 
-const pkgJsonPath = require.resolve('${packageName}/package')
-const addonRoot = path.dirname(pkgJsonPath)
-
-module.exports = require(path.join(addonRoot, 'addonLogging.js'))
+module.exports = require('${packageName}/addonLogging.js')
 `
   fs.writeFileSync(addonLoggingShimPath, addonLoggingShim, 'utf8')
 
@@ -1114,13 +1170,15 @@ module.exports = require(path.join(addonRoot, 'addonLogging.js'))
 
 /**
  * Copy integration tests into backend/integration
+ * Returns null if no integration directory exists
  */
 function syncIntegrationTests(testsDir, projectRoot) {
   const testSourceRoot = path.resolve(path.join(testsDir, '..'))
   const integrationSourceDir = path.join(testSourceRoot, 'integration')
 
   if (!fs.existsSync(integrationSourceDir)) {
-    error('No integration directory found adjacent to test/mobile (expected ../integration). Mobile build cannot proceed.')
+    log('No integration directory found adjacent to test/mobile (../integration). Skipping integration tests.')
+    return null
   }
 
   const testTargetRoot = path.join(projectRoot, 'backend', 'test')
@@ -1192,16 +1250,20 @@ function parseIntegrationAutoModules(integrationAutoPath) {
 
 /**
  * Collect integration modules referenced by integration.auto.cjs in the provided tests dir
+ * Returns empty array if no integration tests are present
  */
 function collectIntegrationModulesForTestsDir(testsDir, integrationCopyMeta) {
+  // If no integration directory was copied, skip integration modules entirely
+  if (!integrationCopyMeta) {
+    log('No integration tests to process (integration directory not present)')
+    return []
+  }
+
   const integrationAutoPath = path.join(testsDir, 'integration.auto.cjs')
 
   if (!fs.existsSync(integrationAutoPath)) {
-    error('Missing integration.auto.cjs in test/mobile. Run `npm run test:mobile:generate` before building the mobile app.')
-  }
-
-  if (!integrationCopyMeta) {
-    error('Integration tests directory not copied; ensure ../integration exists next to test/mobile.')
+    log('No integration.auto.cjs found in test/mobile. Skipping integration tests.')
+    return []
   }
 
   const { sourceRoot, targetRoot, bundlePrefix } = integrationCopyMeta
@@ -1473,7 +1535,7 @@ function bundleApp(projectRoot) {
 function main() {
   log('Starting build process...')
   
-  const { addonSource, isLocalPath, testsDir } = parseArgs()
+  const { addonSource, isLocalPath, testsDir, packageName, usingDefaultTestsDir } = parseArgs()
   const projectRoot = path.resolve(__dirname, '..')
   
   // Only resolve to absolute path if it's a local path
@@ -1485,9 +1547,21 @@ function main() {
   // Step 1: Install the addon package (whether directory, .tgz, or npm package)
   installAddonPackage(addonSourcePath, isLocalPath, projectRoot)
   
-  // Step 2: Get the installed package name
-  const packageName = getInstalledPackageName(addonSourcePath, isLocalPath)
-  log(`Package name: ${packageName}`)
+  // Step 2: Validate tests directory exists (if using default path)
+  if (usingDefaultTestsDir) {
+    if (!fs.existsSync(testsDir)) {
+      error(`Mobile tests directory does not exist: ${testsDir}\n\n` +
+            'The addon package does not include tests in its published version.\n' +
+            'Please provide a tests directory as the second argument:\n' +
+            '  node build-test-app.js <addon-path> <path-to-tests-dir>\n\n' +
+            'Example:\n' +
+            `  node build-test-app.js ${addonSource} ../path-to-addon-source/test/mobile`)
+    }
+    if (!fs.statSync(testsDir).isDirectory()) {
+      error(`Tests path is not a directory: ${testsDir}`)
+    }
+    log(`Using default tests directory: ${testsDir}`)
+  }
   
   // Step 3: Read test code (testsDir is required)
   const testCode = readTestCode(testsDir)
@@ -1498,15 +1572,17 @@ function main() {
   // Step 5: Extract test function names
   const testFunctions = extractTestFunctions(testCode)
   
-  // Step 6: Copy and discover integration modules referenced by integration.auto.cjs
+  // Step 6: Copy and discover integration modules (if present)
   const integrationCopyMeta = syncIntegrationTests(testsDir, projectRoot)
   const integrationFiles = collectIntegrationModulesForTestsDir(testsDir, integrationCopyMeta)
   const testDependencies = extractTestDependencies(testCode)
-  log(`Test dependencies found: ${testDependencies.join(', ')}`)
+  log(`Test dependencies found: ${testDependencies.join(', ') || 'none'}`)
   
   // Generate shim files so relative requires (../../index.js, ../../addon.js) resolve to the installed addon package.
   generateAddonShimFiles(packageName, projectRoot)
-  patchIntegrationUtilsForMobile(projectRoot)
+  if (integrationCopyMeta) {
+    patchIntegrationUtilsForMobile(projectRoot)
+  }
 
   // Step 7: Read addon's package.json
   const addonPackageJson = readAddonPackageJson(packageName, projectRoot)
