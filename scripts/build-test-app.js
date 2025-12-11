@@ -662,8 +662,7 @@ async function init(path, assets = {}) {
   try {
     dirPath = path
     global.assetPaths = assets
-    console.log(\`Initialized with dirPath: \${dirPath}\`)
-    console.log(\`Asset paths:\`, Object.keys(global.assetPaths))
+    global.testDir = dirPath
     return 'INITIALIZED'
   } catch (error) {
     console.error('Error during initialization:', error)
@@ -707,8 +706,37 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   if (!loader) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
-  console.log(\`[integration-runner] Loading bundled module: \${relativeModulePath}\`)
-  return loader(options)
+  
+  // Get brittle runner to await test completion
+  const runner = global[Symbol.for('brittle-runner')]
+  
+  if (!runner) {
+    // No runner found - just load the module and return
+    loader(options)
+    return relativeModulePath
+  }
+  
+  const initialTestCount = runner.tests.count
+  
+  // Load the test module (this registers tests with brittle)
+  loader(options)
+  
+  // Wait for tests to be registered and start
+  let waited = 0
+  const maxWait = 5000 // 5 seconds max to wait for tests to start
+  while (runner.tests.count === initialTestCount && runner.next === null && waited < maxWait) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+    waited += 50
+  }
+  
+  // Now wait for all tests to complete
+  if (runner.next !== null || runner.tests.count > initialTestCount) {
+    while (runner.next !== null) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+  
+  return relativeModulePath
 }
 
 global.runIntegrationModule = async function(relativeModulePath, options = {}) {
@@ -773,22 +801,13 @@ async function handleRunTest(req) {
             return
         }
         
-        console.log(\`Running test: \${testName}\`)
         logRun(testName, 'start')
         
         // Process preTestData - convert Buffer-like objects back to actual Buffers
         let processedPreTestData = preTestData
-        if (preTestData) {
-            // Check if preTestData is a Buffer serialized as JSON
-            if (preTestData.type === 'Buffer' && Array.isArray(preTestData.data)) {
-                // Reconstruct the Buffer from JSON representation
-                processedPreTestData = Buffer.from(preTestData.data)
-                console.log(\`Pre-test data: Reconstructed Buffer of \${processedPreTestData.length} bytes\`)
-            } else if (typeof preTestData === 'object') {
-                console.log(\`Pre-test data received:\`, Object.keys(preTestData))
-            } else {
-                console.log(\`Pre-test data type:\`, typeof preTestData)
-            }
+        if (preTestData && preTestData.type === 'Buffer' && Array.isArray(preTestData.data)) {
+            // Reconstruct the Buffer from JSON representation
+            processedPreTestData = Buffer.from(preTestData.data)
         }
         
         try {
@@ -797,7 +816,6 @@ async function handleRunTest(req) {
             const result = await testFunctionMap[testName](dirPath, getAssetPath, processedPreTestData)
             const duration = Date.now() - startedAt
             logRun(testName, 'end', \`duration=\${duration}ms\`)
-            console.log(\`Test '\${testName}' passed in \${duration}ms\`)
             req.reply(JSON.stringify({ 
                 success: true, 
                 testName,
@@ -1022,7 +1040,7 @@ function patchIntegrationUtilsForMobile(projectRoot) {
   }
 
   const originalSnippet = `const modelDir = path.resolve(__dirname, '../model')`
-  const replacementSnippet = `const writableRoot = globalThis.__TEST_DIR__ || process.env.QVAC_TEST_DIR || path.join(process.cwd(), '.')
+  const replacementSnippet = `const writableRoot = global.testDir || process.cwd()
 const modelDir = path.join(writableRoot, 'test', 'model')`
 
   const content = fs.readFileSync(utilsPath, 'utf8')
