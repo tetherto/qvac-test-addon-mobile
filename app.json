@@ -34,6 +34,7 @@
           }
         }
       ],
+      ["./plugins/set-ndk-version", { "ndkVersion": "29.0.14206865" }],
       "expo-asset",
       "./plugins/with-opencl-config"
     ]
