@@ -62,7 +62,7 @@ This is a React Native + Bare runtime application that:
 2. **Runtime**: When the app launches:
    - React Native UI loads and initializes assets
    - Backend initializes with `dirPath` and asset paths
-   - Each test function runs independently via RPC
+   - User triggers tests via buttons (automated tests run sequentially, manual tests run individually)
    - Results display as "testName: PASS" or "testName: FAIL"
    - Tests continue even if one fails
 
@@ -133,11 +133,13 @@ npm run android
 npm run ios
 ```
 
-The app will automatically:
+The app will:
 1. Initialize (set dirPath and load asset mappings)
-2. Run each test function individually
-3. Display results for each test as: "testName: PASS" or "testName: FAIL"
-4. Show detailed error messages for failed tests
+2. Display a "Run Automated Tests" button for tests without pre-test requirements
+3. Display individual controls for manual tests (tests requiring microphone input, etc.)
+4. Run each test function independently via button press
+5. Display results for each test as: "testName: PASS" or "testName: FAIL"
+6. Show detailed error messages for failed tests
 
 Each test function runs independently, so one failure doesn't stop others from running.
 
@@ -347,7 +349,7 @@ async function test_mic_transcription(dirPath, getAssetPath, preTestData) {
 }
 ```
 
-For detailed documentation and examples, see [PRETEST_EXAMPLE.md](./PRETEST_EXAMPLE.md).
+Pre-test steps are configured automatically based on test function signatures during the build process.
 
 ### Post-Test Steps
 
@@ -368,7 +370,9 @@ qvac-addon-mobile-tester/
 │   ├── hooks/
 │   │   └── useWorklet.js     # Bare worklet hook for RPC
 │   └── utils/
-│       └── assetLoader.js    # Asset loading utilities
+│       ├── assetLoader.js    # Asset loading utilities
+│       ├── audio.js          # Audio playback utilities
+│       └── preTestSteps.js   # Pre-test step execution
 ├── backend/
 │   ├── backend.cjs           # Generated: contains injected test logic
 │   ├── api.cjs               # RPC command constants
@@ -440,9 +444,13 @@ The `scripts/build-test-app.js` script performs these steps:
 
 ## Advanced Usage
 
-### Custom Test Timing
+### Test Execution Behavior
 
-The app has a 3-second delay before INIT and 2-second delay before running tests. To modify:
+The app has a button-based interface for running tests:
+- **Automated tests**: Run via the "Run Automated Tests" button
+- **Manual tests** (tests requiring pre-test input like microphone recording): Have individual "Start Recording" / "Stop Recording" and "Run Test" buttons
+
+There is a 3-second delay before initialization to ensure assets are loaded. To modify:
 
 Edit `app/index.js`:
 ```javascript
@@ -450,11 +458,6 @@ Edit `app/index.js`:
 setTimeout(() => {
   init()
 }, 3000) // Change this value
-
-// Delay before running tests (inside init function)
-setTimeout(() => {
-  runAllTests()
-}, 2000) // Change this value
 ```
 
 ### Multiple Test Scenarios
@@ -610,7 +613,6 @@ When adding support for new addons:
 
 ## Related Documentation
 
-- [Proposal Document](./Proposal_%20Default%20mobile%20app%20for%20addon%20testing%20with%20script%20loading%20support.md)
 - [Bare Runtime](https://github.com/holepunchto/bare)
 - [React Native Bare Kit](https://github.com/holepunchto/react-native-bare-kit)
 - [WebDriverIO](https://webdriver.io/)
