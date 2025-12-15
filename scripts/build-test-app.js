@@ -679,8 +679,8 @@ function getAssetPath(assetName) {
     return global.assetPaths[projectPath].replace('file://', '')
   }
   
-  // Fallback to require.asset if not found in map
-  return require.asset(\`../testAssets/\${assetName}\`, __filename)
+  // Asset not found in manifest - throw clear error
+  throw new Error(\`Asset not found in testAssets: \${assetName}. Make sure \${assetName} is in testAssets/ directory and rebuild the app.\`)
 }
 
 // ============================================
@@ -707,19 +707,18 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
   
-  // Get brittle runner to await test completion
+  // Load the test module (this registers tests with brittle and creates the runner)
+  loader(options)
+  
+  // Get brittle runner AFTER loading (brittle creates it on first require)
   const runner = global[Symbol.for('brittle-runner')]
   
   if (!runner) {
-    // No runner found - just load the module and return
-    loader(options)
+    // No brittle runner - module loaded but doesn't use brittle
     return relativeModulePath
   }
   
   const initialTestCount = runner.tests.count
-  
-  // Load the test module (this registers tests with brittle)
-  loader(options)
   
   // Wait for tests to be registered and start
   let waited = 0
@@ -955,12 +954,18 @@ function copyTestAssets(testsDir, projectRoot) {
   
   log('Copying test assets...')
   
-  // Create target directory
+  // Create target directory for testAssets (used by backend)
   if (fs.existsSync(testAssetsTarget)) {
     fs.rmSync(testAssetsTarget, { recursive: true })
   }
   fs.mkdirSync(testAssetsTarget, { recursive: true })
   copyDirectoryRecursive(testAssetsSource, testAssetsTarget)
+  
+  // Also copy to assets/ for Expo's asset pipeline
+  const expoAssetsTarget = path.join(projectRoot, 'assets', 'testAssets')
+  fs.mkdirSync(expoAssetsTarget, { recursive: true })
+  copyDirectoryRecursive(testAssetsSource, expoAssetsTarget)
+  
   log('Test assets copied successfully')
   return { copied: true, source: testAssetsSource }
 }
@@ -1201,7 +1206,7 @@ export const ASSET_FILES = []
 export const ASSET_FILES = [
 ${allFiles.map(f => `  {
     projectPath: '../../testAssets/${f.replace(/\\/g, '/')}',
-    modulePath: require('../testAssets/${f.replace(/\\/g, '/')}')
+    modulePath: require('../assets/testAssets/${f.replace(/\\/g, '/')}')
   }`).join(',\n')}
 ]
 `
