@@ -34,12 +34,45 @@ export async function loadAssetPaths() {
         assetMap[projectPath] = filePath
         console.log(`Loaded JSON: ${projectPath} -> ${filePath}`)
       } else {
-        // Regular asset (raw, onnx, etc.)
-        const asset = Asset.fromModule(modulePath)
-        await asset.downloadAsync()
-        
-        assetMap[projectPath] = asset.localUri.replace('file://', '')
-        console.log(`Loaded: ${projectPath} -> ${asset.localUri}`)
+        // Regular asset (raw, onnx, images, etc.)
+        // For testAssets, copy from app bundle to writable cache
+        if (projectPath.includes('testAssets/')) {
+          const filename = projectPath.split('/').pop()
+          
+          // Try to get from Asset first to get the bundled resource
+          const asset = Asset.fromModule(modulePath)
+          await asset.downloadAsync()
+          
+          // Copy to cache directory so backend can read it
+          const destPath = `${FileSystem.cacheDirectory}${filename}`
+          
+          // Asset.localUri gives us the resource location, copy to cache
+          if (asset.localUri && asset.localUri !== modulePath) {
+            await FileSystem.copyAsync({
+              from: asset.localUri,
+              to: destPath
+            })
+            assetMap[projectPath] = destPath
+            console.log(`Loaded: ${projectPath} -> ${destPath}`)
+          } else {
+            // Fallback: try copying from asset bundle directly
+            console.log(`Asset.localUri not usable (${asset.localUri}), trying direct asset copy`)
+            const assetUri = `asset:///${modulePath.replace(/\//g, '_').replace(/\./g, '_')}`
+            await FileSystem.copyAsync({
+              from: assetUri,
+              to: destPath
+            })
+            assetMap[projectPath] = destPath
+            console.log(`Loaded (fallback): ${projectPath} -> ${destPath}`)
+          }
+        } else {
+          // For other assets (models, etc.), use Asset.fromModule
+          const asset = Asset.fromModule(modulePath)
+          await asset.downloadAsync()
+          
+          assetMap[projectPath] = asset.localUri.replace('file://', '')
+          console.log(`Loaded: ${projectPath} -> ${asset.localUri}`)
+        }
       }
     } catch (error) {
       console.error(`Error loading asset ${projectPath}:`, error)
