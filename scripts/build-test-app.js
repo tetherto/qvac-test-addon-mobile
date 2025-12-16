@@ -942,8 +942,33 @@ function extractPackageName(spec) {
 
 /**
  * Copy test assets if they exist
+ * 
+ * First checks if addon has a media/ folder at root and copies those files
+ * to test/mobile/testAssets/ to avoid duplication across addon libs.
  */
-function copyTestAssets(testsDir, projectRoot) {
+function copyTestAssets(testsDir, projectRoot, addonSource) {
+  // Step 1: Check if addon has a media/ folder at root
+  // This allows all addons to store media files in one standard location
+  if (addonSource) {
+    const addonMediaDir = path.join(addonSource, 'media')
+    const testAssetsInTestDir = path.join(testsDir, 'testAssets')
+    
+    if (fs.existsSync(addonMediaDir)) {
+      log(`Found media/ folder in addon root: ${addonMediaDir}`)
+      log(`Copying media files to ${testAssetsInTestDir} to avoid duplication...`)
+      
+      // Create testAssets directory if it doesn't exist
+      if (!fs.existsSync(testAssetsInTestDir)) {
+        fs.mkdirSync(testAssetsInTestDir, { recursive: true })
+      }
+      
+      // Copy media files to testAssets
+      copyDirectoryRecursive(addonMediaDir, testAssetsInTestDir)
+      log(`Media files copied from addon/media/ to test/mobile/testAssets/`)
+    }
+  }
+  
+  // Step 2: Copy testAssets from test/mobile/testAssets to app
   const testAssetsSource = path.join(testsDir, 'testAssets')
   const testAssetsTarget = path.join(projectRoot, 'testAssets')
   
@@ -952,7 +977,7 @@ function copyTestAssets(testsDir, projectRoot) {
     return { copied: false, source: null }
   }
   
-  log('Copying test assets...')
+  log('Copying test assets to app...')
   
   // Create target directory for testAssets (used by backend)
   if (fs.existsSync(testAssetsTarget)) {
@@ -1438,8 +1463,8 @@ function main() {
   fs.writeFileSync(backendPath, backendCode, 'utf8')
   log(`Generated backend.cjs at: ${backendPath}`)
   
-  // Step 10: Copy test assets
-  const assetCopyResult = copyTestAssets(testsDir, projectRoot)
+  // Step 10: Copy test assets (including from addon/media/ if present)
+  copyTestAssets(testsDir, projectRoot, addonSource)
   
   // Step 11: Generate asset manifest
   log('Generating asset manifest...')
