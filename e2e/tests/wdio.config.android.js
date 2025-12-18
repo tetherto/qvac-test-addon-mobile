@@ -11,8 +11,8 @@ exports.config = {
       {
         platformName: "Android",
         "appium:automationName": "UiAutomator2",
-        "appium:appPackage": "to.tether.addon.tester",
-        "appium:appActivity": "to.tether.addon.tester.MainActivity",
+        "appium:appPackage": "io.tether.test.qvac",
+        "appium:appActivity": "io.tether.test.qvac.MainActivity",
         "appium:newCommandTimeout": 300,
         "appium:autoGrantPermissions": true,  // Auto-grant runtime permissions (microphone, etc.)
         "appium:autoAcceptAlerts": true,       // Auto-accept all dialogs

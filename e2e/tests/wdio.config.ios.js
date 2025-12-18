@@ -9,7 +9,7 @@ exports.config = {
       {
         platformName: "iOS",
           "appium:automationName": "XCUITest",
-          "appium:bundleId": "to.tether.addon.tester",
+          "appium:bundleId": "io.tether.test.qvac",
           "appium:newCommandTimeout": 300,
           "appium:autoAcceptAlerts": true,      // Auto-accept all alerts/permissions (microphone, etc.)
           "appium:autoDismissAlerts": false,    // Don't auto-dismiss (we want to accept)
