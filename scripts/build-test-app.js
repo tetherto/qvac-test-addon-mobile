@@ -679,8 +679,8 @@ function getAssetPath(assetName) {
     return global.assetPaths[projectPath].replace('file://', '')
   }
   
-  // Fallback to require.asset if not found in map
-  return require.asset(\`../testAssets/\${assetName}\`, __filename)
+  // Asset not found in manifest - throw clear error
+  throw new Error(\`Asset not found in testAssets: \${assetName}. Make sure \${assetName} is in testAssets/ directory and rebuild the app.\`)
 }
 
 // ============================================
@@ -707,19 +707,18 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
   
-  // Get brittle runner to await test completion
+  // Load the test module (this registers tests with brittle and creates the runner)
+  loader(options)
+  
+  // Get brittle runner AFTER loading (brittle creates it on first require)
   const runner = global[Symbol.for('brittle-runner')]
   
   if (!runner) {
-    // No runner found - just load the module and return
-    loader(options)
+    // No brittle runner - module loaded but doesn't use brittle
     return relativeModulePath
   }
   
   const initialTestCount = runner.tests.count
-  
-  // Load the test module (this registers tests with brittle)
-  loader(options)
   
   // Wait for tests to be registered and start
   let waited = 0
@@ -943,8 +942,33 @@ function extractPackageName(spec) {
 
 /**
  * Copy test assets if they exist
+ * 
+ * First checks if addon has a media/ folder at root and copies those files
+ * to test/mobile/testAssets/ to avoid duplication across addon libs.
  */
-function copyTestAssets(testsDir, projectRoot) {
+function copyTestAssets(testsDir, projectRoot, addonSource) {
+  // Step 1: Check if addon has a media/ folder at root
+  // This allows all addons to store media files in one standard location
+  if (addonSource) {
+    const addonMediaDir = path.join(addonSource, 'media')
+    const testAssetsInTestDir = path.join(testsDir, 'testAssets')
+    
+    if (fs.existsSync(addonMediaDir)) {
+      log(`Found media/ folder in addon root: ${addonMediaDir}`)
+      log(`Copying media files to ${testAssetsInTestDir} to avoid duplication...`)
+      
+      // Create testAssets directory if it doesn't exist
+      if (!fs.existsSync(testAssetsInTestDir)) {
+        fs.mkdirSync(testAssetsInTestDir, { recursive: true })
+      }
+      
+      // Copy media files to testAssets
+      copyDirectoryRecursive(addonMediaDir, testAssetsInTestDir)
+      log(`Media files copied from addon/media/ to test/mobile/testAssets/`)
+    }
+  }
+  
+  // Step 2: Copy testAssets from test/mobile/testAssets to app
   const testAssetsSource = path.join(testsDir, 'testAssets')
   const testAssetsTarget = path.join(projectRoot, 'testAssets')
   
@@ -953,14 +977,20 @@ function copyTestAssets(testsDir, projectRoot) {
     return { copied: false, source: null }
   }
   
-  log('Copying test assets...')
+  log('Copying test assets to app...')
   
-  // Create target directory
+  // Create target directory for testAssets (used by backend)
   if (fs.existsSync(testAssetsTarget)) {
     fs.rmSync(testAssetsTarget, { recursive: true })
   }
   fs.mkdirSync(testAssetsTarget, { recursive: true })
   copyDirectoryRecursive(testAssetsSource, testAssetsTarget)
+  
+  // Also copy to assets/ for Expo's asset pipeline
+  const expoAssetsTarget = path.join(projectRoot, 'assets', 'testAssets')
+  fs.mkdirSync(expoAssetsTarget, { recursive: true })
+  copyDirectoryRecursive(testAssetsSource, expoAssetsTarget)
+  
   log('Test assets copied successfully')
   return { copied: true, source: testAssetsSource }
 }
@@ -1201,7 +1231,7 @@ export const ASSET_FILES = []
 export const ASSET_FILES = [
 ${allFiles.map(f => `  {
     projectPath: '../../testAssets/${f.replace(/\\/g, '/')}',
-    modulePath: require('../testAssets/${f.replace(/\\/g, '/')}')
+    modulePath: require('../assets/testAssets/${f.replace(/\\/g, '/')}')
   }`).join(',\n')}
 ]
 `
@@ -1315,15 +1345,15 @@ ${testFunctionNames.map(testName => `
         const passText = await getElementByText('${testName}: PASS')
         const failText = await getElementByText('${testName}: FAIL')
         
-        // Wait for either pass or fail with a generous timeout
+        // Wait for either pass or fail with a generous timeout (10 minutes for ML model download/inference)
         await driver.waitUntil(async () => {
             const passDisplayed = await passText.isDisplayed().catch(() => false)
             const failDisplayed = await failText.isDisplayed().catch(() => false)
             return passDisplayed || failDisplayed
         }, {
-            timeout: 30000,
-            interval: 500,
-            timeoutMsg: 'Test ${testName} did not complete within 30 seconds'
+            timeout: 600000,
+            interval: 2000,
+            timeoutMsg: 'Test ${testName} did not complete within 10 minutes'
         })
         
         // Check which one is displayed
@@ -1433,8 +1463,8 @@ function main() {
   fs.writeFileSync(backendPath, backendCode, 'utf8')
   log(`Generated backend.cjs at: ${backendPath}`)
   
-  // Step 10: Copy test assets
-  const assetCopyResult = copyTestAssets(testsDir, projectRoot)
+  // Step 10: Copy test assets (including from addon/media/ if present)
+  copyTestAssets(testsDir, projectRoot, addonSource)
   
   // Step 11: Generate asset manifest
   log('Generating asset manifest...')
