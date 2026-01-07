@@ -322,12 +322,14 @@ export default function App() {
                 handleResultData(result.result)
             }
             
-            if (result.success) {
-                console.log(`✅ ${testName} passed`)
-                addMessage(`${testName}: PASS`)
+            // Display test result with pass/fail count
+            const { summary } = result
+            if (summary && result.success) {
+                console.log(`✅ ${testName} passed (${summary.passed}/${summary.total})`)
+                addMessage(`${testName}: PASS (${summary.passed}/${summary.total})`)
             } else {
-                console.log(`❌ ${testName} failed:`, result.error)
-                addMessage(`${testName}: FAIL - ${result.error}`)
+                console.log(`❌ ${testName} failed (${summary?.passed ?? 0}/${summary?.total ?? 0})`)
+                addMessage(`${testName}: FAIL (${summary?.passed ?? 0}/${summary?.total ?? 0} passed)`)
             }
         } catch (error) {
             console.error(`Error running test ${testName}:`, error)
