@@ -319,12 +319,14 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: write
     steps:
       - name: Checkout for registry info
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Generate summary
         id: summary
