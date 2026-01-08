@@ -82,7 +82,7 @@ jobs:
             
             for platform in $(echo "$PLATFORMS" | jq -r '.[]'); do
               if [ "$platform" == "Android" ]; then
-                RUNNER="ai-run-linux"
+                RUNNER="ubuntu-latest"
               else
                 RUNNER="macos-14"
               fi
