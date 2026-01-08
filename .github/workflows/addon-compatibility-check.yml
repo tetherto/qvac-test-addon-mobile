@@ -121,9 +121,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.load-registry.outputs.matrix) }}
 
-    outputs:
-      build_result_${{ strategy.job-index }}: ${{ steps.build_result.outputs.status }}
-
     steps:
       - name: Free up disk space (Linux)
         if: matrix.platform == 'Android'
