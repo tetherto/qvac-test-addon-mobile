@@ -14,11 +14,6 @@ on:
         type: string
         required: false
         default: ''
-      skip_device_farm:
-        description: 'Skip Device Farm tests (build only)'
-        type: boolean
-        required: false
-        default: false
 
 env:
   NODE_VERSION: 'lts/*'
@@ -283,36 +278,7 @@ jobs:
             echo "status=failure" >> $GITHUB_OUTPUT
           fi
 
-  # Job 3: Run Device Farm tests (optional, can be skipped)
-  device-farm-test:
-    name: Device Farm ${{ matrix.name }} (${{ matrix.platform }})
-    needs: [load-registry, build-validation]
-    if: ${{ !inputs.skip_device_farm && github.event_name == 'pull_request' }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
-    continue-on-error: true
-    permissions:
-      contents: read
-      packages: read
-      pull-requests: write
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.load-registry.outputs.matrix) }}
-
-    steps:
-      - name: Note about Device Farm
-        run: |
-          echo "📱 Device Farm testing for ${{ matrix.name }} on ${{ matrix.platform }}"
-          echo ""
-          echo "⚠️  Full Device Farm integration is available."
-          echo "    For now, build validation confirms compatibility."
-          echo ""
-          echo "To enable full E2E testing:"
-          echo "  1. Ensure AWS Device Farm secrets are configured"
-          echo "  2. Remove 'if' condition from this job"
-          echo "  3. Add full build and upload steps"
-
-  # Job 4: Summarize results
+  # Job 3: Summarize results
   summary:
     name: Compatibility Summary
     needs: [load-registry, build-validation]
