@@ -24,6 +24,17 @@
       "description": "Transcription addon using whisper.cpp",
       "priority": "high",
       "platforms": ["Android", "iOS"]
+    },
+    {
+      "name": "@qvac/tts-onnx",
+      "repository": "tetherto/qvac-lib-infer-onnx-tts",
+      "branch": "main",
+      "testPath": "test/mobile",
+      "hasIntegrationTests": true,
+      "prebuildArtifactPrefix": "onnx-tts-",
+      "description": "Text-to-speech addon using ONNX runtime",
+      "priority": "high",
+      "platforms": ["Android", "iOS"]
     }
   ],
   "testSettings": {
