@@ -35,6 +35,28 @@
       "description": "Text-to-speech addon using ONNX runtime",
       "priority": "high",
       "platforms": ["Android", "iOS"]
+    },
+    {
+      "name": "@qvac/translation-nmtcpp",
+      "repository": "tetherto/qvac-lib-infer-nmtcpp",
+      "branch": "main",
+      "testPath": "test/mobile",
+      "hasIntegrationTests": true,
+      "prebuildArtifactPrefix": "nmt-cpp-",
+      "description": "Neural machine translation addon using Marian NMT",
+      "priority": "high",
+      "platforms": ["Android", "iOS"]
+    },
+    {
+      "name": "@qvac/decoder-audio",
+      "repository": "tetherto/qvac-lib-decoder-audio",
+      "branch": "main",
+      "testPath": "test/mobile",
+      "hasIntegrationTests": true,
+      "prebuildArtifactPrefix": "decoder-audio-",
+      "description": "Audio decoder addon using FFmpeg",
+      "priority": "high",
+      "platforms": ["Android", "iOS"]
     }
   ],
   "testSettings": {
