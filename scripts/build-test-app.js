@@ -1465,8 +1465,35 @@ function main() {
   // Step 6: Copy and discover integration modules (if present)
   const integrationCopyMeta = syncIntegrationTests(testsDir, projectRoot)
   const integrationFiles = collectIntegrationModulesForTestsDir(testsDir, integrationCopyMeta)
+
+  // Extract dependencies from mobile test code
   const testDependencies = extractTestDependencies(testCode)
-  log(`Test dependencies found: ${testDependencies.join(', ') || 'none'}`)
+
+  // Also scan all copied test files (integration, utils) for dependencies
+  // This ensures dependencies in utility files like test/utils/*.js are detected
+  const copiedTestDir = path.join(projectRoot, 'backend', 'test')
+  if (fs.existsSync(copiedTestDir)) {
+    const scanAllJsFiles = (dir) => {
+      const deps = []
+      const items = fs.readdirSync(dir, { withFileTypes: true })
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name)
+        if (item.isDirectory()) {
+          deps.push(...scanAllJsFiles(fullPath))
+        } else if (item.name.endsWith('.js') || item.name.endsWith('.cjs')) {
+          const content = fs.readFileSync(fullPath, 'utf8')
+          deps.push(...extractTestDependencies(content))
+        }
+      }
+      return deps
+    }
+    const copiedDeps = scanAllJsFiles(copiedTestDir)
+    testDependencies.push(...copiedDeps)
+  }
+
+  // Deduplicate dependencies
+  const uniqueTestDeps = [...new Set(testDependencies)]
+  log(`Test dependencies found: ${uniqueTestDeps.join(', ') || 'none'}`)
   
   // Generate shim files so relative requires (../../index.js, ../../addon.js) resolve to the installed addon package.
   generateAddonShimFiles(packageName, projectRoot)
@@ -1477,7 +1504,7 @@ function main() {
   // Step 7: Read addon's package.json
   const addonPackageJson = readAddonPackageJson(packageName, projectRoot)
 
-  const allTestDependencies = Array.from(new Set(testDependencies))
+  const allTestDependencies = Array.from(new Set(uniqueTestDeps))
   
   // Step 8: Install test dependencies
   installTestDependencies(addonPackageJson, allTestDependencies, projectRoot)
