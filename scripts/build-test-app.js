@@ -878,6 +878,31 @@ const rpc = new RPC(BareKit.IPC, (req) => {
             req.reply(\`Unknown command: \${req.command}\`)
     }
 })
+
+// Forward Bare console output to React Native via RPC
+const { LOG } = require('./api.cjs')
+const _console = {
+  log: console.log.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+  info: console.info.bind(console),
+  debug: console.debug.bind(console)
+}
+function _fwd (level, args) {
+  try {
+    const msg = args.map(a => {
+      if (typeof a === 'string') return a
+      try { return JSON.stringify(a) } catch (e) { return String(a) }
+    }).join(' ')
+    const r = rpc.request(LOG)
+    r.send(JSON.stringify({ level, msg }))
+  } catch (e) {}
+}
+console.log = (...a) => { _console.log(...a); _fwd('log', a) }
+console.warn = (...a) => { _console.warn(...a); _fwd('warn', a) }
+console.error = (...a) => { _console.error(...a); _fwd('error', a) }
+console.info = (...a) => { _console.info(...a); _fwd('info', a) }
+console.debug = (...a) => { _console.debug(...a); _fwd('debug', a) }
 `
 }
 

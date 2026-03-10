@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Text, View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native'
 import useWorklet from './hooks/useWorklet'
 import * as FileSystem from 'expo-file-system/legacy'
-import { INIT, RUN_TEST } from '../backend/api.cjs'
+import { INIT, RUN_TEST, LOG } from '../backend/api.cjs'
 import { loadAssetPaths } from './utils/assetLoader'
 import { TEST_FUNCTIONS, TEST_CONFIG } from './testConfig'
 import { playAudio } from './utils/audio'
@@ -16,7 +16,21 @@ const automatedTests = TEST_FUNCTIONS.filter(name => !TEST_CONFIG[name])
 const manualTests = TEST_FUNCTIONS.filter(name => TEST_CONFIG[name])
 
 export default function App() {
-    const [rpc, rpcReady] = useWorklet({})
+    const [rpc, rpcReady] = useWorklet({
+        callback: (req) => {
+            if (req.command === LOG) {
+                try {
+                    const text = Buffer.from(req.data).toString('utf8')
+                    const { level, msg } = JSON.parse(text)
+                    const fn = console[level] || console.log
+                    fn('[Bare]', msg)
+                } catch (e) {
+                    console.log('[Bare] (parse error)', e.message)
+                }
+                try { req.reply('') } catch (e) {}
+            }
+        }
+    })
     const [messages, setMessages] = useState(['Initializing...'])
     const [assetPaths, setAssetPaths] = useState(null)
     const [initialized, setInitialized] = useState(false)
