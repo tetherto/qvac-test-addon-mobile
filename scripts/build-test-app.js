@@ -622,10 +622,12 @@ function extractTestFunctions(testCode) {
  * Generate backend.cjs with injected test logic
  */
 function generateBackend(testLogic, testFunctions, integrationFiles = []) {
-  return `const { INIT, RUN_TEST } = require('./api.cjs')
+  return `const { INIT, RUN_TEST, GENERATE_IMAGE } = require('./api.cjs')
 const RPC = require('bare-rpc')
 const fs = require('bare-fs')
 const path = require('bare-path')
+let _handleGenerateImage = null
+try { _handleGenerateImage = require('./imageGen.cjs').handleGenerateImage } catch (e) {}
 const ensureProcess = () => {
   if (typeof globalThis.process === 'undefined') {
     try {
@@ -873,6 +875,13 @@ const rpc = new RPC(BareKit.IPC, (req) => {
             break;
         case RUN_TEST:
             handleRunTest(req)
+            break;
+        case GENERATE_IMAGE:
+            if (_handleGenerateImage) {
+                _handleGenerateImage(req, dirPath)
+            } else {
+                req.reply(JSON.stringify({ success: false, error: 'Image generation not available' }))
+            }
             break;
         default:
             req.reply(\`Unknown command: \${req.command}\`)

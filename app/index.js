@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Text, View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native'
+import { Text, View, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput, ActivityIndicator } from 'react-native'
 import useWorklet from './hooks/useWorklet'
 import * as FileSystem from 'expo-file-system/legacy'
-import { INIT, RUN_TEST } from '../backend/api.cjs'
+import { INIT, RUN_TEST, GENERATE_IMAGE } from '../backend/api.cjs'
 import { loadAssetPaths } from './utils/assetLoader'
 import { TEST_FUNCTIONS, TEST_CONFIG } from './testConfig'
 import { playAudio } from './utils/audio'
@@ -23,6 +23,10 @@ export default function App() {
     const [capturedData, setCapturedData] = useState({})
     const [recordingState, setRecordingState] = useState({}) // { testName: { isRecording: boolean, startTime: number } }
     const [isTestRunning, setIsTestRunning] = useState(false) // Track if any test is currently running
+    const [imagePrompt, setImagePrompt] = useState('an elegant flower in a glass vase, watercolor painting')
+    const [generatedImages, setGeneratedImages] = useState([])
+    const [isGenerating, setIsGenerating] = useState(false)
+    const [generationInfo, setGenerationInfo] = useState(null)
 
     // Audio recording state for pre-test steps
     const audioChunksRef = useRef([])
@@ -432,6 +436,48 @@ export default function App() {
         }
     }
 
+    async function generateImage() {
+        if (!rpc || isGenerating) return
+
+        setIsGenerating(true)
+        setGeneratedImages([])
+        setGenerationInfo(null)
+        addMessage('\n=== Generating Image ===')
+        addMessage(`Prompt: ${imagePrompt}`)
+        addMessage('This may take a while (model download on first run)...')
+
+        try {
+            const request = rpc.request(GENERATE_IMAGE)
+            request.send(JSON.stringify({
+                prompt: imagePrompt,
+                negativePrompt: 'blurry, low quality, watermark, text, bad anatomy',
+                steps: 5,
+                width: 512,
+                height: 512,
+                cfgScale: 7.5,
+                seed: -1
+            }))
+            const response = await request.reply('utf8')
+            const result = JSON.parse(response.toString())
+
+            if (result.success) {
+                setGeneratedImages(result.imagePaths)
+                setGenerationInfo({
+                    count: result.count,
+                    elapsed: result.elapsed
+                })
+                addMessage(`Generated ${result.count} image(s) in ${(result.elapsed / 1000).toFixed(1)}s`)
+            } else {
+                addMessage(`Generation failed: ${result.error}`)
+            }
+        } catch (error) {
+            console.error('Image generation error:', error)
+            addMessage(`Generation error: ${error.message}`)
+        } finally {
+            setIsGenerating(false)
+        }
+    }
+
     return (
         <View style={styles.container}>
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
@@ -533,6 +579,65 @@ export default function App() {
                                 })}
                             </View>
                         )}
+
+                        {/* Image Generation Section */}
+                        <View style={styles.imageGenSection}>
+                            <Text style={styles.sectionTitle}>Image Generation</Text>
+
+                            <TextInput
+                                style={styles.promptInput}
+                                value={imagePrompt}
+                                onChangeText={setImagePrompt}
+                                placeholder="Enter a prompt..."
+                                placeholderTextColor="#999"
+                                multiline
+                                numberOfLines={3}
+                            />
+
+                            <TouchableOpacity
+                                style={[
+                                    styles.button,
+                                    styles.generateButton,
+                                    (isGenerating || isTestRunning) && styles.disabledButton
+                                ]}
+                                onPress={generateImage}
+                                disabled={isGenerating || isTestRunning}
+                            >
+                                <Text style={[
+                                    styles.buttonText,
+                                    (isGenerating || isTestRunning) && styles.disabledText
+                                ]}>
+                                    {isGenerating ? 'Generating...' : 'Generate Image'}
+                                </Text>
+                            </TouchableOpacity>
+
+                            {isGenerating && (
+                                <View style={styles.loadingContainer}>
+                                    <ActivityIndicator size="large" color="#34C759" />
+                                    <Text style={styles.loadingText}>
+                                        Generating image... This may take a while.
+                                    </Text>
+                                </View>
+                            )}
+
+                            {generatedImages.length > 0 && (
+                                <View style={styles.imageResultContainer}>
+                                    {generationInfo && (
+                                        <Text style={styles.imageInfo}>
+                                            {generationInfo.count} image(s) in {(generationInfo.elapsed / 1000).toFixed(1)}s
+                                        </Text>
+                                    )}
+                                    {generatedImages.map((uri) => (
+                                        <Image
+                                            key={uri}
+                                            source={{ uri }}
+                                            style={styles.generatedImage}
+                                            resizeMode="contain"
+                                        />
+                                    ))}
+                                </View>
+                            )}
+                        </View>
                     </View>
                 )}
             </ScrollView>
@@ -631,5 +736,51 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingVertical: 12,
         paddingHorizontal: 10,
+    },
+    imageGenSection: {
+        marginTop: 30,
+        paddingTop: 20,
+        borderTopWidth: 2,
+        borderTopColor: '#333',
+    },
+    promptInput: {
+        borderWidth: 1,
+        borderColor: '#CCC',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 14,
+        marginBottom: 10,
+        minHeight: 80,
+        textAlignVertical: 'top',
+        color: '#333',
+        backgroundColor: '#FAFAFA',
+    },
+    generateButton: {
+        backgroundColor: '#34C759',
+    },
+    loadingContainer: {
+        alignItems: 'center',
+        padding: 20,
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 14,
+        color: '#666',
+    },
+    imageResultContainer: {
+        marginTop: 15,
+    },
+    imageInfo: {
+        fontSize: 12,
+        color: '#666',
+        marginBottom: 10,
+        fontFamily: 'monospace',
+    },
+    generatedImage: {
+        width: '100%',
+        aspectRatio: 1,
+        borderRadius: 8,
+        marginBottom: 10,
+        backgroundColor: '#F0F0F0',
     },
 })
