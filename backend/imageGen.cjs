@@ -106,14 +106,14 @@ async function handleGenerateImage (req, dirPath) {
         logger: console
       }, {
         threads: '4',
-        device: useCpu ? 'cpu' : 'gpu',
+        device: 'gpu',
         prediction: 'v',
-        vae_on_cpu: true,
         diffusion_fa: true,
         flash_attn: true,
         mmap: true,
         diffusion_conv_direct: true,
-        vae_conv_direct: true
+        vae_conv_direct: true,
+        verbosity: '2'
       })
 
       console.log('Loading diffusion model...')
