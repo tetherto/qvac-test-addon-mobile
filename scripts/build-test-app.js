@@ -621,7 +621,29 @@ function extractTestFunctions(testCode) {
 /**
  * Generate backend.cjs with injected test logic
  */
-function generateBackend(testLogic, testFunctions, integrationFiles = []) {
+function generateBackend(testLogic, testFunctions, integrationFiles = [], options = {}) {
+  const { hasAddonLogging = false } = options
+
+  const nativeLoggerBlock = hasAddonLogging ? `
+// Wire C++ native addon logger so QLOG output flows through console.log
+// (which is already RPC-forwarded to React Native above).
+// This captures addon-level logs (llama.cpp, whisper, NMT, etc.) on iOS
+// where they would otherwise be invisible outside Xcode.
+const _PRIO = { 0: 'ERROR', 1: 'WARNING', 2: 'INFO', 3: 'DEBUG' }
+function _initNativeLogger () {
+  try {
+    const { setLogger } = require('./addonLogging')
+    setLogger((priority, message) => {
+      console.log(\`[C++][\${_PRIO[priority] || 'UNKNOWN'}]: \${message}\`)
+    })
+    console.log('[NativeLogger] C++ addon logger initialized')
+  } catch (e) {
+    console.warn('[NativeLogger] addonLogging not available:', e.message)
+  }
+}
+_initNativeLogger()` : `
+function _initNativeLogger () {}` // no-op for addons without native logging
+
   return `const { INIT, RUN_TEST } = require('./api.cjs')
 const RPC = require('bare-rpc')
 const fs = require('bare-fs')
@@ -907,23 +929,7 @@ console.error = (...a) => { _console.error(...a); _fwd('error', a) }
 console.info = (...a) => { _console.info(...a); _fwd('info', a) }
 console.debug = (...a) => { _console.debug(...a); _fwd('debug', a) }
 
-// Wire C++ native addon logger so QLOG output flows through console.log
-// (which is already RPC-forwarded to React Native above).
-// This captures addon-level logs (llama.cpp, whisper, NMT, etc.) on iOS
-// where they would otherwise be invisible outside Xcode.
-const _PRIO = { 0: 'ERROR', 1: 'WARNING', 2: 'INFO', 3: 'DEBUG' }
-function _initNativeLogger () {
-  try {
-    const { setLogger } = require('./addonLogging')
-    setLogger((priority, message) => {
-      console.log(\`[C++][\${_PRIO[priority] || 'UNKNOWN'}]: \${message}\`)
-    })
-    console.log('[NativeLogger] C++ addon logger initialized')
-  } catch (e) {
-    console.warn('[NativeLogger] addonLogging not available:', e.message)
-  }
-}
-_initNativeLogger()
+${nativeLoggerBlock}
 `
 }
 
@@ -1096,12 +1102,17 @@ module.exports = require('${packageName}/binding.js')
 `
   fs.writeFileSync(bindingShimPath, bindingShim, 'utf8')
 
-  const addonLoggingShimPath = path.join(backendDir, 'addonLogging.js')
-  const addonLoggingShim = `'use strict'
+  const addonPkgDir = path.join(projectRoot, 'node_modules', packageName)
+  const hasAddonLogging = fs.existsSync(path.join(addonPkgDir, 'addonLogging.js'))
+
+  if (hasAddonLogging) {
+    const addonLoggingShimPath = path.join(backendDir, 'addonLogging.js')
+    const addonLoggingShim = `'use strict'
 
 module.exports = require('${packageName}/addonLogging.js')
 `
-  fs.writeFileSync(addonLoggingShimPath, addonLoggingShim, 'utf8')
+    fs.writeFileSync(addonLoggingShimPath, addonLoggingShim, 'utf8')
+  }
 
   log('Generated addon shim files in backend/')
 }
@@ -1556,7 +1567,9 @@ function main() {
   installTestDependencies(addonPackageJson, allTestDependencies, projectRoot)
   
   // Step 9: Generate backend.cjs
-  const backendCode = generateBackend(testLogic, testFunctions, integrationFiles)
+  const addonPkgDir = path.join(projectRoot, 'node_modules', packageName)
+  const hasAddonLogging = fs.existsSync(path.join(addonPkgDir, 'addonLogging.js'))
+  const backendCode = generateBackend(testLogic, testFunctions, integrationFiles, { hasAddonLogging })
   const backendPath = path.join(projectRoot, 'backend', 'backend.cjs')
   fs.writeFileSync(backendPath, backendCode, 'utf8')
   log(`Generated backend.cjs at: ${backendPath}`)
