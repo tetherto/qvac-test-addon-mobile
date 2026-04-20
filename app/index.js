@@ -35,7 +35,7 @@ async function _flushLogs () {
     } else {
       await FileSystem.writeAsStringAsync(BARE_LOG_FILE, batch)
     }
-  } catch (_) {}
+  } catch (e) { console.warn('[bare-log] flush error:', e.message) }
 }
 
 // Categorize tests
