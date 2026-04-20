@@ -310,59 +310,6 @@ npm run android  # builds APK
 2. Upload APK to Device Farm
 3. Run e2e tests against the uploaded build
 
-## iOS C++ Native Log Capture
-
-On iOS Device Farm, native C++ logs (from llama.cpp, ONNX Runtime, whisper.cpp, etc.) are invisible by default -- unlike Android where `adb logcat` captures everything. This framework solves that with a two-part logging pipeline.
-
-### How it works
-
-```
-C++ QLOG -> JsLogger -> setLogger callback -> console.log
-  -> _fwd RPC -> React Native LOG handler
-  -> _appendLog buffer -> bare_console.log (Documents/)
-  -> WDIO after hook pullFile -> $DEVICEFARM_LOG_DIR -> Device Farm artifacts
-```
-
-1. **`backend.cjs` (generated)**: At startup, `_initNativeLogger()` calls the addon's `setLogger` to route all C++ QLOG output through `console.log`, which is already RPC-forwarded to React Native. Only wired for addons that ship `addonLogging.js`.
-
-2. **`app/index.js`**: The React Native LOG handler calls `_appendLog()` to buffer every `[Bare]` RPC message with a timestamp. A 2-second flush timer writes the buffer to `bare_console.log` in the app's Documents directory.
-
-3. **WDIO `after` hook (in CI workflow)**: After the test session ends, a 3-second pause allows the final flush, then the file is pulled from the device via Appium and written to `$DEVICEFARM_LOG_DIR` for artifact collection.
-
-### Finding the logs
-
-After a Device Farm run, `bare_console.log` is inside the **Customer Artifacts** zip:
-
-```
-Customer_Artifacts.zip
-└── Host_Machine_Files/
-    └── $DEVICEFARM_LOG_DIR/
-        ├── bare_console.log    ← C++ and worklet logs
-        └── appium.log
-```
-
-### Log format
-
-Each line is timestamped with the source level:
-
-```
-2026-04-20T16:48:25.304Z [log] [C++][INFO]: [Llama.cpp] ggml_metal_device_init: GPU name: Apple A18 Pro GPU
-2026-04-20T16:48:25.304Z [log] [C++][WARNING]: [Llama.cpp] ggml_metal_device_init: tensor API disabled
-2026-04-20T16:38:22.469Z [log] [C++][DEBUG]: [DetectionInference] ONNX inference: 725 ms
-```
-
-### Which addons are captured
-
-| Addon | C++ logs captured | Notes |
-|---|---|---|
-| llamacpp-llm | Yes | llama.cpp internals via `llama_log_set` -> QLOG |
-| llamacpp-embed | Yes | Same pattern as LLM |
-| lib-infer-diffusion | Yes | stable-diffusion.cpp via `sd_set_log_callback` -> QLOG |
-| ocr-onnx | Yes (addon code) | ORT internal logs still go to ORT default sink |
-| decoder-audio | N/A | Pure JS, no native code |
-| whispercpp | Not yet | Needs addon-side fix to route `whisper_log_set` to QLOG |
-| nmtcpp | Partial | Addon QLOG works; GGML internal logs go to stderr |
-
 ## Advanced Features
 
 ### Pre-Test Steps
