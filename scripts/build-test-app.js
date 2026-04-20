@@ -855,6 +855,9 @@ async function handleRunTest(req) {
                 error: error.message,
                 stack: error.stack
             }))
+        } finally {
+            // Re-initialize global C++ logger in case the test called releaseLogger()
+            _initNativeLogger()
         }
     } catch (error) {
         console.error('Run test error:', error)
@@ -903,6 +906,24 @@ console.warn = (...a) => { _console.warn(...a); _fwd('warn', a) }
 console.error = (...a) => { _console.error(...a); _fwd('error', a) }
 console.info = (...a) => { _console.info(...a); _fwd('info', a) }
 console.debug = (...a) => { _console.debug(...a); _fwd('debug', a) }
+
+// Wire C++ native addon logger so QLOG output flows through console.log
+// (which is already RPC-forwarded to React Native above).
+// This captures addon-level logs (llama.cpp, whisper, NMT, etc.) on iOS
+// where they would otherwise be invisible outside Xcode.
+const _PRIO = { 0: 'ERROR', 1: 'WARNING', 2: 'INFO', 3: 'DEBUG' }
+function _initNativeLogger () {
+  try {
+    const { setLogger } = require('./addonLogging')
+    setLogger((priority, message) => {
+      console.log(\`[C++][\${_PRIO[priority] || 'UNKNOWN'}]: \${message}\`)
+    })
+    console.log('[NativeLogger] C++ addon logger initialized')
+  } catch (e) {
+    console.warn('[NativeLogger] addonLogging not available:', e.message)
+  }
+}
+_initNativeLogger()
 `
 }
 
