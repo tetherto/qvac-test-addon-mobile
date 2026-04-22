@@ -14,6 +14,8 @@ const dirPath = `${FileSystem.documentDirectory.replace('file://', '')}`
 const BARE_LOG_FILE = FileSystem.documentDirectory + 'bare_console.log'
 let _logBuffer = []
 let _flushTimer = null
+let _fileContent = ''
+let _flushChain = Promise.resolve()
 
 function _appendLog (line) {
   _logBuffer.push(new Date().toISOString() + ' ' + line)
@@ -22,20 +24,17 @@ function _appendLog (line) {
   }
 }
 
-async function _flushLogs () {
+function _flushLogs () {
   _flushTimer = null
   if (_logBuffer.length === 0) return
   const batch = _logBuffer.join('\n') + '\n'
   _logBuffer = []
-  try {
-    const info = await FileSystem.getInfoAsync(BARE_LOG_FILE)
-    if (info.exists) {
-      const prev = await FileSystem.readAsStringAsync(BARE_LOG_FILE)
-      await FileSystem.writeAsStringAsync(BARE_LOG_FILE, prev + batch)
-    } else {
-      await FileSystem.writeAsStringAsync(BARE_LOG_FILE, batch)
-    }
-  } catch (e) { console.warn('[bare-log] flush error:', e.message) }
+  _flushChain = _flushChain.then(async () => {
+    try {
+      _fileContent += batch
+      await FileSystem.writeAsStringAsync(BARE_LOG_FILE, _fileContent)
+    } catch (e) { console.warn('[bare-log] flush error:', e.message) }
+  })
 }
 
 // Categorize tests
@@ -190,6 +189,7 @@ export default function App() {
             return
         }
         try { await FileSystem.deleteAsync(BARE_LOG_FILE, { idempotent: true }) } catch (_) {}
+        _fileContent = ''
         _appendLog('[init] Bare console log file created')
         console.log('INITIALIZING', dirPath)
         console.log('Asset paths:', assetPaths)
