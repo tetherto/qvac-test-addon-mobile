@@ -11,6 +11,32 @@ import { Buffer } from 'buffer'
 
 const dirPath = `${FileSystem.documentDirectory.replace('file://', '')}`
 
+const BARE_LOG_FILE = FileSystem.documentDirectory + 'bare_console.log'
+let _logBuffer = []
+let _flushTimer = null
+let _fileContent = ''
+let _flushChain = Promise.resolve()
+
+function _appendLog (line) {
+  _logBuffer.push(new Date().toISOString() + ' ' + line)
+  if (!_flushTimer) {
+    _flushTimer = setTimeout(_flushLogs, 2000)
+  }
+}
+
+function _flushLogs () {
+  _flushTimer = null
+  if (_logBuffer.length === 0) return
+  const batch = _logBuffer.join('\n') + '\n'
+  _logBuffer = []
+  _flushChain = _flushChain.then(async () => {
+    try {
+      _fileContent += batch
+      await FileSystem.writeAsStringAsync(BARE_LOG_FILE, _fileContent)
+    } catch (e) { console.warn('[bare-log] flush error:', e.message) }
+  })
+}
+
 // Categorize tests
 const automatedTests = TEST_FUNCTIONS.filter(name => !TEST_CONFIG[name])
 const manualTests = TEST_FUNCTIONS.filter(name => TEST_CONFIG[name])
@@ -24,8 +50,10 @@ export default function App() {
                     const { level, msg } = JSON.parse(text)
                     const fn = console[level] || console.log
                     fn('[Bare]', msg)
+                    _appendLog(`[${level}] ${msg}`)
                 } catch (e) {
                     console.log('[Bare] (parse error)', e.message)
+                    _appendLog(`[parse-error] ${e.message}`)
                 }
                 try { req.reply('') } catch (e) {}
             }
@@ -160,6 +188,9 @@ export default function App() {
             addMessage('RPC NOT WORKING')
             return
         }
+        try { await FileSystem.deleteAsync(BARE_LOG_FILE, { idempotent: true }) } catch (_) {}
+        _fileContent = ''
+        _appendLog('[init] Bare console log file created')
         console.log('INITIALIZING', dirPath)
         console.log('Asset paths:', assetPaths)
 
