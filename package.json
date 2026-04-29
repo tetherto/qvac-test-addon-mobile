@@ -34,6 +34,7 @@
     "bare-os": "^3.6.2",
     "bare-process": "^4.2.2",
     "bare-rpc": "^0.2.13",
+    "bare-tls": "3.1.0",
     "brittle": "^3.19.1",
     "corestore": "^7.7.0",
     "expo": "54.0.22",
@@ -64,9 +65,5 @@
     "prettier": "^3.3.3",
     "prettier-config-standard": "^7.0.0",
     "typescript": "^5.3.3"
-  },
-  "overrides": {
-    "bare-tls": "2.2.3",
-    "bare-https": "2.1.3"
   }
 }
