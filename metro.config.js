@@ -2,6 +2,6 @@ const { getDefaultConfig } = require("expo/metro-config");
 
 const config = getDefaultConfig(__dirname);
 
-config.resolver.assetExts.push("so", "bin", "model", "bundle", "raw", "onnx");
+config.resolver.assetExts.push("so", "bin", "model", "bundle", "raw", "onnx", "gguf");
 
 module.exports = config;
