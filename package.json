@@ -35,12 +35,14 @@
     "bare-process": "^4.2.2",
     "bare-rpc": "^0.2.13",
     "brittle": "^3.19.1",
+    "buffer": "^6.0.3",
     "corestore": "^7.7.0",
     "expo": "54.0.22",
     "expo-asset": "^12.0.9",
     "expo-av": "~16.0.7",
     "expo-build-properties": "^1.0.9",
     "expo-constants": "~18.0.10",
+    "expo-file-system": "~19.0.17",
     "expo-linking": "^8.0.8",
     "expo-router": "^6.0.8",
     "expo-system-ui": "~6.0.8",
@@ -59,14 +61,12 @@
     "simdle-native": "^1.1.1"
   },
   "devDependencies": {
+    "@expo/config-plugins": "~54.0.2",
     "@types/react": "~19.1.10",
+    "babel-preset-expo": "~54.0.6",
     "bare-pack": "^1.4.7",
     "prettier": "^3.3.3",
     "prettier-config-standard": "^7.0.0",
     "typescript": "^5.3.3"
-  },
-  "overrides": {
-    "bare-tls": "2.2.3",
-    "bare-https": "2.1.3"
   }
 }
