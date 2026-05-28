@@ -12,7 +12,7 @@ permissions:
   issues: write
 
 jobs:
-  pending-approval:
+  check-approvals:
     name: Check Approvals
     runs-on: ubuntu-latest
     continue-on-error: true
