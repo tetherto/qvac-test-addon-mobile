@@ -28,7 +28,7 @@ jobs:
             (github.event.action == 'opened' || github.event.action == 'labeled' || github.event.action == 'synchronize')
           )
         continue-on-error: true
-        uses: sidj-thr/oss-actions/check-pending-reviews@feat/QVAC-13860-review-count-js-action
+        uses: sidj-thr/oss-actions/check-approvals@feat/QVAC-13860-review-count-js-action
         with:
           app-id:      ${{ secrets.APP_ID }}
           private-key:   ${{ secrets.APP_PRIVATE_KEY }}
@@ -36,4 +36,3 @@ jobs:
           maintainers-github-team: ai-runtime-merge-mgmt
           team-leads-github-team:  qvac-internal-merge
           total-required-approvals: 2
-
