@@ -1,4 +1,4 @@
-name: Count Pending Approvals
+name: Check Approvals
 
 on:
   issue_comment:
@@ -13,11 +13,11 @@ permissions:
 
 jobs:
   pending-approval:
-    name: Pending Approval
+    name: Check Approvals
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Count Pending Approvals
+      - name: Check Approvals
         if: >-
           (
             github.event_name == 'issue_comment' &&
