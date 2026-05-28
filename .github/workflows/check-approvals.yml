@@ -1,0 +1,42 @@
+name: Count Pending Approvals
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, labeled, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  pending-approval:
+    name: Pending Approval
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Count Pending Approvals
+        if: >-
+          (
+            github.event_name == 'issue_comment' &&
+            github.event.comment.body == 'pending_reviews' &&
+            github.event.issue.pull_request != null
+          ) || (
+            github.event_name == 'pull_request_target' &&
+            github.event.action == 'opened'
+          ) || (
+            github.event_name == 'pull_request_target' &&
+            (github.event.action == 'labeled' || github.event.action == 'synchronize') &&
+            contains(github.event.pull_request.labels.*.name, 'verified')
+          )
+        continue-on-error: true
+        uses: sidj-thr/oss-actions/check-pending-reviews@feat/QVAC-13860-review-count-js-action
+        with:
+          app-id:      ${{ secrets.APP_ID }}
+          private-key:   ${{ secrets.APP_PRIVATE_KEY }}
+          pr-number:   ${{ github.event.pull_request.number || github.event.issue.number }}
+          maintainers-github-team: ai-runtime-merge-mgmt
+          team-leads-github-team:  qvac-internal-merge
+          total-required-approvals: 2
