@@ -444,11 +444,19 @@ export default function App() {
             if (result.result) {
                 handleResultData(result.result)
             }
-// Display test result with pass/fail count
+// Display test result with pass/fail count.
+            // A zero-count run is never a pass: it means no brittle sub-test
+            // ran (addon load failure / crash before first assertion). Guard
+            // on summary.total > 0 here too so the on-screen verdict can never
+            // read "PASS (0/0)" even if a backend ever reports success with an
+            // empty summary. See the 2026-06-09 Android e2e outage post-mortem.
             const { summary } = result
-            if (summary && result.success) {
+            if (summary && result.success && summary.total > 0) {
                 console.log(`✅ ${testName} passed (${summary.passed}/${summary.total})`)
                 addMessage(`${testName}: PASS (${summary.passed}/${summary.total})`)
+            } else if (summary && (summary.total ?? 0) === 0) {
+                console.log(`❌ ${testName} failed: no sub-tests executed (0/0)`)
+                addMessage(`${testName}: FAIL (0/0 — no sub-tests executed)`)
             } else {
                 console.log(`❌ ${testName} failed (${summary?.passed ?? 0}/${summary?.total ?? 0})`)
                 addMessage(`${testName}: FAIL (${summary?.passed ?? 0}/${summary?.total ?? 0} passed)`)

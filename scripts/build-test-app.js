@@ -860,9 +860,16 @@ async function handleRunTest(req) {
             
             // Handle result with summary
             const { summary } = result
-            const allPassed = summary.failed === 0
-            
-            req.reply(JSON.stringify({ 
+            // A run that executed zero sub-tests is NOT a pass: it means the
+            // test body never reached a single brittle assertion (e.g. the
+            // native addon failed to load, or the worklet crashed before any
+            // test ran). Requiring total > 0 stops such a no-signal run from
+            // surfacing as a vacuous "PASS (0/0)". See the 2026-06-09 Android
+            // e2e outage post-mortem — tts-ggml@0.2.1 dlopen failure reported
+            // green precisely because failed === 0 held with total === 0.
+            const allPassed = !!summary && summary.total > 0 && summary.failed === 0
+
+            req.reply(JSON.stringify({
                 success: allPassed,
                 testName,
                 summary,
