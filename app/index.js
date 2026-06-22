@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Text, View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native'
+import { Text, View, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native'
 import useWorklet from './hooks/useWorklet'
 import * as FileSystem from 'expo-file-system/legacy'
 import { INIT, RUN_TEST, LOG } from '../backend/api.cjs'
@@ -14,6 +14,45 @@ const dirPath = `${FileSystem.documentDirectory.replace('file://', '')}`
 // Categorize tests
 const automatedTests = TEST_FUNCTIONS.filter(name => !TEST_CONFIG[name])
 const manualTests = TEST_FUNCTIONS.filter(name => TEST_CONFIG[name])
+
+/**
+ * Read testFilter.txt pushed by CI sharding (Device Farm WDIO before hook).
+ * The file contains a pipe-separated list of test function names that this
+ * device is responsible for. Tests NOT in the filter are skipped (not run).
+ * If no filter file exists, all tests run (backwards-compatible).
+ *
+ * Android: /data/local/tmp/testFilter.txt
+ * iOS: app documents directory /testFilter.txt
+ */
+async function readTestFilter() {
+    const candidates = Platform.OS === 'android'
+        ? [
+            '/data/local/tmp/testFilter.txt',
+            `${FileSystem.documentDirectory}testFilter.txt`,
+        ]
+        : [
+            `${FileSystem.documentDirectory}testFilter.txt`,
+        ]
+
+    for (const filterPath of candidates) {
+        try {
+            const info = await FileSystem.getInfoAsync(filterPath)
+            if (!info.exists) continue
+
+            const content = await FileSystem.readAsStringAsync(filterPath)
+            if (!content || content.trim().length === 0) continue
+
+            const testNames = content.trim().split('|').map(s => s.trim()).filter(Boolean)
+            if (testNames.length > 0) {
+                console.log(`[testFilter] Loaded from ${filterPath}`)
+                return new Set(testNames)
+            }
+        } catch (e) {
+            console.log(`[testFilter] Could not read ${filterPath}:`, e.message)
+        }
+    }
+    return null
+}
 
 export default function App() {
     const [rpc, rpcReady] = useWorklet({
@@ -259,10 +298,21 @@ export default function App() {
 
         setIsTestRunning(true)
         try {
-            console.log('Running automated tests:', automatedTests)
-            addMessage(`\n=== Running ${automatedTests.length} Automated Test(s) ===`)
+            const testFilter = await readTestFilter()
 
-            for (const testName of automatedTests) {
+            if (testFilter) {
+                console.log('[testFilter] Active filter:', [...testFilter])
+                addMessage(`\n=== Test filter active: ${testFilter.size} test(s) selected ===`)
+            }
+
+            const testsToRun = testFilter
+                ? automatedTests.filter(name => testFilter.has(name))
+                : automatedTests
+
+            console.log('Running automated tests:', testsToRun)
+            addMessage(`\n=== Running ${testsToRun.length} Automated Test(s) ===`)
+
+            for (const testName of testsToRun) {
                 await runTest(testName)
             }
 
@@ -413,11 +463,13 @@ export default function App() {
             if (result.result) {
                 handleResultData(result.result)
             }
-// Display test result with pass/fail count
             const { summary } = result
-            if (summary && result.success) {
+            if (summary && result.success && summary.total > 0) {
                 console.log(`✅ ${testName} passed (${summary.passed}/${summary.total})`)
                 addMessage(`${testName}: PASS (${summary.passed}/${summary.total})`)
+            } else if (summary && (summary.total ?? 0) === 0) {
+                console.log(`❌ ${testName} failed: no sub-tests executed (0/0)`)
+                addMessage(`${testName}: FAIL (0/0 — no sub-tests executed)`)
             } else {
                 console.log(`❌ ${testName} failed (${summary?.passed ?? 0}/${summary?.total ?? 0})`)
                 addMessage(`${testName}: FAIL (${summary?.passed ?? 0}/${summary?.total ?? 0} passed)`)
