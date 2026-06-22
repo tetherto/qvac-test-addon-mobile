@@ -73,6 +73,7 @@ jobs:
             ADDON_NAME=$(echo "$ADDON" | jq -r '.name')
             REPO=$(echo "$ADDON" | jq -r '.repository')
             BRANCH=$(echo "$ADDON" | jq -r '.branch')
+            WORKDIR=$(echo "$ADDON" | jq -r '.workdir // ""')
             PLATFORMS=$(echo "$ADDON" | jq -c '.platforms')
             
             for platform in $(echo "$PLATFORMS" | jq -r '.[]'); do
@@ -86,9 +87,10 @@ jobs:
                 --arg name "$ADDON_NAME" \
                 --arg repo "$REPO" \
                 --arg branch "$BRANCH" \
+                --arg workdir "$WORKDIR" \
                 --arg platform "$platform" \
                 --arg runner "$RUNNER" \
-                '{name: $name, repository: $repo, branch: $branch, platform: $platform, runner: $runner}')
+                '{name: $name, repository: $repo, branch: $branch, workdir: $workdir, platform: $platform, runner: $runner}')
               
               MATRIX_ITEMS=$(echo "$MATRIX_ITEMS" | jq --argjson item "$ITEM" '. + [$item]')
             done
@@ -180,8 +182,17 @@ jobs:
           
           git config --global url."https://${GIT_PAT}:@github.com/".insteadOf "https://github.com/"
 
+      - name: Resolve addon directory
+        id: addon-dir
+        run: |
+          if [ -n "${{ matrix.workdir }}" ]; then
+            echo "path=addon/${{ matrix.workdir }}" >> $GITHUB_OUTPUT
+          else
+            echo "path=addon" >> $GITHUB_OUTPUT
+          fi
+
       - name: Verify addon has mobile tests
-        working-directory: ./addon
+        working-directory: ${{ steps.addon-dir.outputs.path }}
         run: |
           echo "🔍 Verifying mobile tests for ${{ matrix.name }}..."
           
@@ -200,11 +211,11 @@ jobs:
           ls -la test/mobile/*.cjs
 
       - name: Install addon dependencies
-        working-directory: ./addon
+        working-directory: ${{ steps.addon-dir.outputs.path }}
         run: npm install
 
       - name: Pack addon
-        working-directory: ./addon
+        working-directory: ${{ steps.addon-dir.outputs.path }}
         run: |
           echo "📦 Packing addon..."
           if npm run build:pack 2>/dev/null; then
@@ -225,7 +236,7 @@ jobs:
         run: |
           echo "🏗️ Building test app for ${{ matrix.name }} on ${{ matrix.platform }}..."
           
-          ADDON_PATH="${GITHUB_WORKSPACE}/addon"
+          ADDON_PATH="${GITHUB_WORKSPACE}/${{ steps.addon-dir.outputs.path }}"
           
           # Run the build script
           npm run build "$ADDON_PATH" "$ADDON_PATH/test/mobile"
