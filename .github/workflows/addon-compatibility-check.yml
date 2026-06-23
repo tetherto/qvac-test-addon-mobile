@@ -152,15 +152,24 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Resolve addon directory
+        id: addon-dir
+        run: |
+          if [ -n "${{ matrix.workdir }}" ]; then
+            echo "path=addon/${{ matrix.workdir }}" >> $GITHUB_OUTPUT
+          else
+            echo "path=addon" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure npm registries
         env:
           GPR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           GIT_PAT: ${{ secrets.PAT_TOKEN }}
         run: |
-          # Configure for addon
-          cd addon
-          cat > .npmrc <<NPMRC
+          ADDON_DIR="${{ steps.addon-dir.outputs.path }}"
+          
+          cat > "$ADDON_DIR/.npmrc" <<NPMRC
           always-auth=true
           registry=https://registry.npmjs.org/
           @qvac:registry=https://registry.npmjs.org/
@@ -169,9 +178,7 @@ jobs:
           //npm.pkg.github.com/:_authToken=${GPR_TOKEN}
           NPMRC
           
-          # Configure for test-framework
-          cd ../test-framework
-          cat > .npmrc <<NPMRC
+          cat > test-framework/.npmrc <<NPMRC
           always-auth=true
           registry=https://registry.npmjs.org/
           @qvac:registry=https://registry.npmjs.org/
@@ -181,15 +188,6 @@ jobs:
           NPMRC
           
           git config --global url."https://${GIT_PAT}:@github.com/".insteadOf "https://github.com/"
-
-      - name: Resolve addon directory
-        id: addon-dir
-        run: |
-          if [ -n "${{ matrix.workdir }}" ]; then
-            echo "path=addon/${{ matrix.workdir }}" >> $GITHUB_OUTPUT
-          else
-            echo "path=addon" >> $GITHUB_OUTPUT
-          fi
 
       - name: Verify addon has mobile tests
         working-directory: ${{ steps.addon-dir.outputs.path }}

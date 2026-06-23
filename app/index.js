@@ -43,17 +43,24 @@ const manualTests = TEST_FUNCTIONS.filter(name => TEST_CONFIG[name])
 
 /**
  * Read testFilter.txt pushed by CI sharding (Device Farm WDIO before hook).
- * The file contains a pipe-separated list of test function names that this
- * device is responsible for. Tests NOT in the filter are skipped (not run).
- * If no filter file exists, all tests run (backwards-compatible).
  *
- * Android: /data/local/tmp/testFilter.txt
- * iOS: app documents directory /testFilter.txt
+ * Producer: tetherto/qvac .github/actions/run-mobile-integration-tests/upload-to-devicefarm/wdio.template.js
+ * The WDIO `before` hook writes the Mocha grep pattern (pipe-separated test
+ * function names) to testFilter.txt on the device before the app launches.
+ *
+ * Contract:
+ *   - Format: pipe-separated test function names, e.g. "runGemma4Test|runToolCallingTest"
+ *   - Android path: /data/local/tmp/testFilter.txt (pushed via `adb push`)
+ *   - iOS path: <app-documents>/testFilter.txt (pushed via DeviceFarm extraData)
+ *   - Names must match entries in the addon's `test/mobile/*.cjs` exports exactly
+ *
+ * Tests NOT in the filter are simply not executed. If no filter file exists
+ * (e.g. local dev or non-sharded runs), all tests run (backwards-compatible).
  */
 async function readTestFilter() {
     const candidates = Platform.OS === 'android'
         ? [
-            '/data/local/tmp/testFilter.txt',
+            'file:///data/local/tmp/testFilter.txt',
             `${FileSystem.documentDirectory}testFilter.txt`,
         ]
         : [
@@ -339,6 +346,14 @@ export default function App() {
             const testsToRun = testFilter
                 ? automatedTests.filter(name => testFilter.has(name))
                 : automatedTests
+
+            if (testFilter) {
+                const unmatched = [...testFilter].filter(name => !automatedTests.includes(name))
+                if (unmatched.length > 0) {
+                    console.warn(`[testFilter] WARNING: filter contains names not in automatedTests: ${unmatched.join(', ')}`)
+                    addMessage(`⚠️ Filter has ${unmatched.length} unrecognized test name(s): ${unmatched.join(', ')}`)
+                }
+            }
 
             console.log('Running automated tests:', testsToRun)
             addMessage(`\n=== Running ${testsToRun.length} Automated Test(s) ===`)
