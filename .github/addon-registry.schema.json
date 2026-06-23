@@ -33,7 +33,7 @@
           },
           "repository": {
             "type": "string",
-            "description": "GitHub repository (e.g., tetherto/qvac-lib-infer-llamacpp-llm)",
+            "description": "GitHub repository (e.g., tetherto/qvac)",
             "pattern": "^[a-zA-Z0-9-]+/[a-zA-Z0-9-_.]+$"
           },
           "branch": {
@@ -41,9 +41,13 @@
             "description": "Branch to test against",
             "default": "main"
           },
+          "workdir": {
+            "type": "string",
+            "description": "Subdirectory within the repository containing the addon package (for monorepo layouts, e.g. packages/llm-llamacpp)"
+          },
           "testPath": {
             "type": "string",
-            "description": "Path to mobile tests within the addon",
+            "description": "Path to mobile tests within the addon (relative to workdir if set)",
             "default": "test/mobile"
           },
           "hasIntegrationTests": {

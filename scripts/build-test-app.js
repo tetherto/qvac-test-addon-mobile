@@ -860,13 +860,13 @@ async function handleRunTest(req) {
             
             // Handle result with summary
             const { summary } = result
-            const allPassed = summary.failed === 0
-            
-            req.reply(JSON.stringify({ 
+            const allPassed = !!summary && summary.total > 0 && summary.failed === 0
+
+            req.reply(JSON.stringify({
                 success: allPassed,
                 testName,
                 summary,
-                duration 
+                duration
             }))
         } catch (error) {
             console.error(\`Test '\${testName}' failed:\`, error)
