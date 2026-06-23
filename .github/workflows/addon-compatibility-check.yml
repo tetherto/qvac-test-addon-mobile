@@ -20,6 +20,24 @@ env:
   APP_BUNDLE_ID: 'io.tether.test.qvac'
 
 jobs:
+  # Job 0: Fast unit tests for core logic (testFilter, 0/0 detection)
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Run unit tests
+        run: npm test
+
   # Job 1: Load the addon registry and prepare test matrix
   load-registry:
     name: Load Addon Registry
