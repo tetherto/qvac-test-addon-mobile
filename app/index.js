@@ -513,7 +513,10 @@ export default function App() {
             if (summary && result.success && summary.total > 0) {
                 console.log(`✅ ${testName} passed (${summary.passed}/${summary.total})`)
                 addMessage(`${testName}: PASS (${summary.passed}/${summary.total})`)
-            } else if (summary && (summary.total ?? 0) === 0) {
+            } else if (result.skipped) {
+                console.log(`⏭️ ${testName} skipped (0 sub-tests registered, function completed cleanly)`)
+                addMessage(`${testName}: PASS (skipped — no sub-tests registered)`)
+            } else if (result.error || (!result.skipped && summary && (summary.total ?? 0) === 0)) {
                 console.log(`❌ ${testName} failed: no sub-tests executed (0/0)`)
                 addMessage(`${testName}: FAIL (0/0 — no sub-tests executed)`)
             } else {

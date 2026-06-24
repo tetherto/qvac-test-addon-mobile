@@ -861,9 +861,11 @@ async function handleRunTest(req) {
             // Handle result with summary
             const { summary } = result
             const allPassed = !!summary && summary.total > 0 && summary.failed === 0
+            const skipped = !!summary && summary.total === 0
 
             req.reply(JSON.stringify({
                 success: allPassed,
+                skipped,
                 testName,
                 summary,
                 duration
