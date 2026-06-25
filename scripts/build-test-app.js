@@ -729,18 +729,26 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
   
+  // Reset skip flags before loading
+  globalThis.__QVAC_TEST_SKIPPED = false
+  
   // Load the test module (this registers tests with brittle and creates the runner).
   // The return value is the module's exports — shims that intentionally skip
   // export { __QVAC_SKIPPED: true } so we don't need cross-scope globals.
   const moduleExports = loader(options)
   const exportedSkip = !!(moduleExports && moduleExports.__QVAC_SKIPPED)
   
-  // Also check the legacy global flag (belt-and-suspenders for any shim that
-  // only sets global.__QVAC_TEST_SKIPPED without exporting).
-  const globalSkip = typeof global !== 'undefined' && !!global.__QVAC_TEST_SKIPPED
-  if (typeof global !== 'undefined') global.__QVAC_TEST_SKIPPED = false
+  // Check globalThis (works in all JS environments including bare-pack module scopes)
+  const globalThisSkip = !!globalThis.__QVAC_TEST_SKIPPED
+  globalThis.__QVAC_TEST_SKIPPED = false
   
-  const explicitSkipSignal = exportedSkip || globalSkip
+  // Legacy: also check global if available
+  const globalSkip = typeof global !== 'undefined' && global !== globalThis && !!global.__QVAC_TEST_SKIPPED
+  if (typeof global !== 'undefined' && global !== globalThis) global.__QVAC_TEST_SKIPPED = false
+  
+  const explicitSkipSignal = exportedSkip || globalThisSkip || globalSkip
+  
+  console.log(\`[skip-detect] module=\${relativeModulePath} exportedSkip=\${exportedSkip} globalThisSkip=\${globalThisSkip} globalSkip=\${globalSkip} => explicitSkipSignal=\${explicitSkipSignal} (moduleExports type=\${typeof moduleExports})\`)
   
   // Get brittle runner AFTER loading (brittle creates it on first require)
   const runner = global[Symbol.for('brittle-runner')]
