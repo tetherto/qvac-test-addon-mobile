@@ -861,7 +861,10 @@ async function handleRunTest(req) {
             // Handle result with summary
             const { summary } = result
             const allPassed = !!summary && summary.total > 0 && summary.failed === 0
-            const skipped = !!summary && summary.total === 0
+            // Only honor skip if the test function explicitly returned { skipped: true }.
+            // An inferred total===0 without explicit skip is a FAIL (catches async
+            // addon-load crashes like dlopen failures that resolve cleanly with 0/0).
+            const skipped = !!result.skipped
 
             req.reply(JSON.stringify({
                 success: allPassed,

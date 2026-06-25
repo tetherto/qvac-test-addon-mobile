@@ -88,46 +88,58 @@ describe('testFilter matching', () => {
 })
 
 // --- Backend result evaluation (mirrors handleRunTest in build-test-app.js) ---
+// The backend only sets skipped=true if the test function explicitly returned
+// { skipped: true }. An inferred total===0 without explicit skip is a FAIL.
 
-function evaluateTestResult(summary) {
+function evaluateTestResult(result) {
+    const { summary } = result
     const allPassed = !!summary && summary.total > 0 && summary.failed === 0
-    const skipped = !!summary && summary.total === 0
+    const skipped = !!result.skipped
     return { success: allPassed, skipped }
 }
 
-describe('zero-subtest detection (0/0 = FAIL vs intentional skip)', () => {
+describe('zero-subtest detection (0/0 = FAIL, explicit skip = PASS)', () => {
     it('passes when total > 0 and failed === 0', () => {
-        const r = evaluateTestResult({ total: 5, passed: 5, failed: 0 })
+        const r = evaluateTestResult({ summary: { total: 5, passed: 5, failed: 0 } })
         assert.equal(r.success, true)
         assert.equal(r.skipped, false)
     })
 
     it('passes with single passing test', () => {
-        const r = evaluateTestResult({ total: 1, passed: 1, failed: 0 })
+        const r = evaluateTestResult({ summary: { total: 1, passed: 1, failed: 0 } })
         assert.equal(r.success, true)
         assert.equal(r.skipped, false)
     })
 
-    it('marks as skipped when total === 0 (intentional skip, e.g. benchmark shim)', () => {
-        const r = evaluateTestResult({ total: 0, passed: 0, failed: 0 })
+    it('FAILS when total === 0 without explicit skip (catches async dlopen crash)', () => {
+        const r = evaluateTestResult({ summary: { total: 0, passed: 0, failed: 0 } })
+        assert.equal(r.success, false)
+        assert.equal(r.skipped, false)
+    })
+
+    it('marks as skipped ONLY when test function explicitly returns skipped:true', () => {
+        const r = evaluateTestResult({
+            summary: { total: 0, passed: 0, failed: 0 },
+            skipped: true
+        })
         assert.equal(r.success, false)
         assert.equal(r.skipped, true)
     })
 
     it('FAILS when summary is null (crash before any output)', () => {
-        const r = evaluateTestResult(null)
+        const r = evaluateTestResult({ summary: null })
         assert.equal(r.success, false)
         assert.equal(r.skipped, false)
     })
 
     it('FAILS when summary is undefined', () => {
-        const r = evaluateTestResult(undefined)
+        const r = evaluateTestResult({})
         assert.equal(r.success, false)
         assert.equal(r.skipped, false)
     })
 
     it('FAILS when there are failures even with total > 0', () => {
-        const r = evaluateTestResult({ total: 5, passed: 3, failed: 2 })
+        const r = evaluateTestResult({ summary: { total: 5, passed: 3, failed: 2 } })
         assert.equal(r.success, false)
         assert.equal(r.skipped, false)
     })
@@ -151,14 +163,21 @@ describe('app result display classification', () => {
         }), 'PASS')
     })
 
-    it('shows SKIP for intentional 0/0 (benchmark shim, function completed cleanly)', () => {
+    it('shows SKIP only when test explicitly signalled skipped:true', () => {
         assert.equal(classifyDisplayResult({
             success: false, skipped: true,
             summary: { total: 0, passed: 0, failed: 0 }
         }), 'SKIP')
     })
 
-    it('shows FAIL_ZERO when function threw an error (crash/dlopen failure)', () => {
+    it('shows FAIL_ZERO for async dlopen crash (0/0 without explicit skip)', () => {
+        assert.equal(classifyDisplayResult({
+            success: false, skipped: false,
+            summary: { total: 0, passed: 0, failed: 0 }
+        }), 'FAIL_ZERO')
+    })
+
+    it('shows FAIL_ZERO when function threw an error', () => {
         assert.equal(classifyDisplayResult({
             success: false, skipped: false,
             error: 'dlopen failed: libfoo.so not found',
@@ -207,13 +226,21 @@ describe('sharded CI scenario', () => {
     })
 
     it('selected test that passes with subtests = PASS', () => {
-        const r = evaluateTestResult({ total: 4, passed: 4, failed: 0 })
+        const r = evaluateTestResult({ summary: { total: 4, passed: 4, failed: 0 } })
         assert.equal(r.success, true)
     })
 
-    it('selected test that crashes (0/0) = skipped (not hard FAIL)', () => {
-        const r = evaluateTestResult({ total: 0, passed: 0, failed: 0 })
+    it('selected test that crashes (0/0 without explicit skip) = FAIL', () => {
+        const r = evaluateTestResult({ summary: { total: 0, passed: 0, failed: 0 } })
         assert.equal(r.success, false)
+        assert.equal(r.skipped, false)
+    })
+
+    it('selected test with explicit skip signal = SKIP', () => {
+        const r = evaluateTestResult({
+            summary: { total: 0, passed: 0, failed: 0 },
+            skipped: true
+        })
         assert.equal(r.skipped, true)
     })
 
