@@ -729,20 +729,26 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
   
-  // Load the test module (this registers tests with brittle and creates the runner)
-  loader(options)
+  // Load the test module (this registers tests with brittle and creates the runner).
+  // The return value is the module's exports — shims that intentionally skip
+  // export { __QVAC_SKIPPED: true } so we don't need cross-scope globals.
+  const moduleExports = loader(options)
+  const exportedSkip = !!(moduleExports && moduleExports.__QVAC_SKIPPED)
+  
+  // Also check the legacy global flag (belt-and-suspenders for any shim that
+  // only sets global.__QVAC_TEST_SKIPPED without exporting).
+  const globalSkip = typeof global !== 'undefined' && !!global.__QVAC_TEST_SKIPPED
+  if (typeof global !== 'undefined') global.__QVAC_TEST_SKIPPED = false
+  
+  const explicitSkipSignal = exportedSkip || globalSkip
   
   // Get brittle runner AFTER loading (brittle creates it on first require)
   const runner = global[Symbol.for('brittle-runner')]
   
   if (!runner) {
     // No brittle runner - module loaded but doesn't use brittle.
-    // Check if the module explicitly signalled an intentional skip via the
-    // global __QVAC_TEST_SKIPPED flag (set by benchmark shims that are gated
-    // behind env vars). Without this flag, 0/0 is treated as a failure.
-    const explicitSkip = !!global.__QVAC_TEST_SKIPPED
-    global.__QVAC_TEST_SKIPPED = false // reset for next test
-    return { modulePath: relativeModulePath, skipped: explicitSkip, summary: { total: 0, passed: 0, failed: 0 } }
+    // Without an explicit skip signal, 0/0 is treated as a failure.
+    return { modulePath: relativeModulePath, skipped: explicitSkipSignal, summary: { total: 0, passed: 0, failed: 0 } }
   }
   
   // Capture BOTH count and pass BEFORE running this module's tests
@@ -773,16 +779,11 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   const moduleTotal = finalCount - initialCount
   const modulePassed = finalPass - initialPass
   const moduleFailed = moduleTotal - modulePassed
-  
-  // Check explicit skip signal (for cases where brittle runner exists from a
-  // previous module but this module registered nothing)
-  const explicitSkip = !!global.__QVAC_TEST_SKIPPED
-  global.__QVAC_TEST_SKIPPED = false
 
   // Return per-module summary (not cumulative global counts)
   return { 
     modulePath: relativeModulePath,
-    skipped: explicitSkip && moduleTotal === 0,
+    skipped: explicitSkipSignal && moduleTotal === 0,
     summary: {
       total: moduleTotal,
       passed: modulePassed,
