@@ -736,8 +736,13 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   const runner = global[Symbol.for('brittle-runner')]
   
   if (!runner) {
-    // No brittle runner - module loaded but doesn't use brittle
-    return { modulePath: relativeModulePath, summary: { total: 0, passed: 0, failed: 0 } }
+    // No brittle runner - module loaded but doesn't use brittle.
+    // Check if the module explicitly signalled an intentional skip via the
+    // global __QVAC_TEST_SKIPPED flag (set by benchmark shims that are gated
+    // behind env vars). Without this flag, 0/0 is treated as a failure.
+    const explicitSkip = !!global.__QVAC_TEST_SKIPPED
+    global.__QVAC_TEST_SKIPPED = false // reset for next test
+    return { modulePath: relativeModulePath, skipped: explicitSkip, summary: { total: 0, passed: 0, failed: 0 } }
   }
   
   // Capture BOTH count and pass BEFORE running this module's tests
@@ -769,9 +774,15 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   const modulePassed = finalPass - initialPass
   const moduleFailed = moduleTotal - modulePassed
   
+  // Check explicit skip signal (for cases where brittle runner exists from a
+  // previous module but this module registered nothing)
+  const explicitSkip = !!global.__QVAC_TEST_SKIPPED
+  global.__QVAC_TEST_SKIPPED = false
+
   // Return per-module summary (not cumulative global counts)
   return { 
     modulePath: relativeModulePath,
+    skipped: explicitSkip && moduleTotal === 0,
     summary: {
       total: moduleTotal,
       passed: modulePassed,
