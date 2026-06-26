@@ -1442,7 +1442,7 @@ describe('Runner', () => {
 ${manualTestsComment}
     //GENERATED TESTS (AUTOMATED ONLY)
 ${testFunctionNames.map(testName => `
-    it('${testName}', async () => {
+    it('${testName}', async function () {
         // Wait for test result to appear
         const passText = await getElementByText('${testName}: PASS')
         const failText = await getElementByText('${testName}: FAIL')
@@ -1461,6 +1461,21 @@ ${testFunctionNames.map(testName => `
         // Check which one is displayed
         const passDisplayed = await passText.isDisplayed().catch(() => false)
         const failDisplayed = await failText.isDisplayed().catch(() => false)
+        
+        // A test that registered 0 sub-tests (e.g. an env-gated benchmark shim)
+        // is rendered by the app as "PASS (skipped — no sub-tests registered)".
+        // Mark it pending via this.skip() so it surfaces as SKIPPED in the
+        // Device Farm counters / PR summary / test-results.json instead of an
+        // indistinguishable green pass. The build stays green (skipped != failed).
+        if (passDisplayed && !failDisplayed) {
+            const skipText = await getElementByText('${testName}: PASS (skipped')
+            const skipDisplayed = await skipText.isDisplayed().catch(() => false)
+            if (skipDisplayed) {
+                console.log('[e2e] ${testName}: SKIPPED (no sub-tests registered)')
+                this.skip()
+                return
+            }
+        }
         
         // Test should pass (not fail)
         expect(passDisplayed).toBe(true)
