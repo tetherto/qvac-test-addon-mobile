@@ -729,26 +729,26 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
   
-  // Reset skip flags before loading
-  globalThis.__QVAC_TEST_SKIPPED = false
+  // Reset skip flags before loading.
+  // bare-pack isolates globalThis/global per module, so we use the shared
+  // \`console\` object as a cross-module communication channel (confirmed shared
+  // because shim console.log output flows through our override).
+  console.__QVAC_SKIP_FLAG = false
   
-  // Load the test module (this registers tests with brittle and creates the runner).
-  // The return value is the module's exports — shims that intentionally skip
-  // export { __QVAC_SKIPPED: true } so we don't need cross-scope globals.
   const moduleExports = loader(options)
-  const exportedSkip = !!(moduleExports && moduleExports.__QVAC_SKIPPED)
   
-  // Check globalThis (works in all JS environments including bare-pack module scopes)
+  // Primary: check the console-based flag (works across bare-pack module isolation)
+  const consoleSkip = !!console.__QVAC_SKIP_FLAG
+  console.__QVAC_SKIP_FLAG = false
+  
+  // Fallbacks: check module exports and globalThis (in case bare-pack changes behavior)
+  const exportedSkip = !!(moduleExports && moduleExports.__QVAC_SKIPPED)
   const globalThisSkip = !!globalThis.__QVAC_TEST_SKIPPED
   globalThis.__QVAC_TEST_SKIPPED = false
   
-  // Legacy: also check global if available
-  const globalSkip = typeof global !== 'undefined' && global !== globalThis && !!global.__QVAC_TEST_SKIPPED
-  if (typeof global !== 'undefined' && global !== globalThis) global.__QVAC_TEST_SKIPPED = false
+  const explicitSkipSignal = consoleSkip || exportedSkip || globalThisSkip
   
-  const explicitSkipSignal = exportedSkip || globalThisSkip || globalSkip
-  
-  console.log(\`[skip-detect] module=\${relativeModulePath} exportedSkip=\${exportedSkip} globalThisSkip=\${globalThisSkip} globalSkip=\${globalSkip} => explicitSkipSignal=\${explicitSkipSignal} (moduleExports type=\${typeof moduleExports})\`)
+  console.log(\`[skip-detect] module=\${relativeModulePath} consoleSkip=\${consoleSkip} exportedSkip=\${exportedSkip} globalThisSkip=\${globalThisSkip} => explicitSkipSignal=\${explicitSkipSignal}\`)
   
   // Get brittle runner AFTER loading (brittle creates it on first require)
   const runner = global[Symbol.for('brittle-runner')]
