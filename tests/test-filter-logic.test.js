@@ -89,7 +89,7 @@ describe('testFilter matching', () => {
 
 // --- Backend result evaluation (mirrors handleRunTest in build-test-app.js) ---
 // `skipped` is set by loadBundledIntegrationModule only when every registered
-// test was an intentional skip (via global.skipMobileTest). A 0/0 with no
+// test was an intentional skip (via require('brittle').skip). A 0/0 with no
 // explicit skip is a FAIL.
 
 function evaluateTestResult(result) {
