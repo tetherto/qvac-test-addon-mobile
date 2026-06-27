@@ -510,13 +510,20 @@ export default function App() {
                 handleResultData(result.result)
             }
             const { summary } = result
-            if (summary && result.success && summary.total > 0) {
+            const skippedCount = (summary && summary.skipped) || 0
+            // Check skip FIRST: an intentional skip now registers a real
+            // (skipped) test, so summary.total > 0 and result.success is true —
+            // the generic PASS branch would otherwise swallow it. The on-screen
+            // text MUST keep the "PASS (skipped" prefix: the e2e poller matches
+            // "<test>: PASS" / "<test>: FAIL", and the WDIO spec re-classifies a
+            // "PASS (skipped" element as a pending (skipped) result.
+            if (result.skipped) {
+                console.log(`⏭️ ${testName} skipped (${skippedCount} intentional skip${skippedCount === 1 ? '' : 's'}, nothing ran)`)
+                addMessage(`${testName}: PASS (skipped — ${skippedCount} intentional skip${skippedCount === 1 ? '' : 's'})`)
+            } else if (summary && result.success && summary.total > 0) {
                 console.log(`✅ ${testName} passed (${summary.passed}/${summary.total})`)
                 addMessage(`${testName}: PASS (${summary.passed}/${summary.total})`)
-            } else if (result.skipped) {
-                console.log(`⏭️ ${testName} skipped (0 sub-tests registered, function completed cleanly)`)
-                addMessage(`${testName}: PASS (skipped — no sub-tests registered)`)
-            } else if (result.error || (!result.skipped && summary && (summary.total ?? 0) === 0)) {
+            } else if (result.error || (summary && (summary.total ?? 0) === 0)) {
                 console.log(`❌ ${testName} failed: no sub-tests executed (0/0)`)
                 addMessage(`${testName}: FAIL (0/0 — no sub-tests executed)`)
             } else {

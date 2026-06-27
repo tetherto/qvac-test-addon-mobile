@@ -723,34 +723,62 @@ ${integrationFiles.filter(file => file && file.bundlePath).map(file => {
 }).join(',\n')}
 }
 
+// Reusable across ALL addons: from any bundled mobile test module, call
+//   globalThis.skipMobileTest('my test', 'why it is skipped')
+// to record an INTENTIONAL skip. It registers a real brittle skipped test (so
+// the module reports total > 0) and tags the shared brittle runner so the
+// harness reports it as skipped rather than passed. The "register a real test"
+// part is the safety net: a module that registers NOTHING at all stays a 0/0
+// FAIL, so a silent addon-load failure can never masquerade as a green skip.
+global.skipMobileTest = function skipMobileTest(name, reason) {
+  const RUNNER = Symbol.for('brittle-runner')
+  const label = reason ? \`\${name} — \${reason}\` : (name || 'integration')
+  try {
+    // brittle records a skip as count++ AND pass++ (it has no skip counter).
+    require('brittle').skip(label, () => {})
+  } catch (e) {
+    console.log(\`[skip] brittle unavailable for '\${label}': \${e && e.message}\`)
+  }
+  // Tag the shared runner so loadBundledIntegrationModule can tell this skip
+  // apart from a genuine pass. The runner object is shared across modules in
+  // the bundle, so this count is visible to the harness.
+  const runner = global[RUNNER]
+  if (runner && runner.tests) runner.tests.skipped = (runner.tests.skipped || 0) + 1
+  console.log(\`[skip] \${label}\`)
+}
+
 async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   const loader = integrationModuleLoaders[relativeModulePath]
   if (!loader) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
-  
-  // Load the module. If it throws (e.g. dlopen failure), the error propagates
-  // and the caller treats it as a FAIL. If it completes without error, we
-  // proceed to check how many brittle tests it registered.
+
+  // Capture counters BEFORE loading. The brittle runner is a shared singleton
+  // whose counts accumulate across modules, so we work in deltas. Reading the
+  // baseline first means a skip registered synchronously during module load
+  // (via global.skipMobileTest) is included in this module's delta.
+  const RUNNER = Symbol.for('brittle-runner')
+  const baseline = global[RUNNER]
+  const initialCount = baseline && baseline.tests ? baseline.tests.count : 0
+  const initialPass = baseline && baseline.tests ? baseline.tests.pass : 0
+  const initialSkipped = baseline && baseline.tests ? (baseline.tests.skipped || 0) : 0
+
+  // Load the module. If it throws (e.g. a synchronous dlopen failure), the
+  // error propagates and the caller treats it as a FAIL.
   loader(options)
-  
-  // Get brittle runner AFTER loading (brittle creates it on first require)
-  const runner = global[Symbol.for('brittle-runner')]
-  
+
+  // Get the runner AFTER loading (brittle creates it on first test/skip).
+  const runner = global[RUNNER]
+
   if (!runner) {
-    // No brittle runner at all — module loaded cleanly but doesn't use brittle.
-    // For integration modules loaded via require(), a clean 0/0 is treated as
-    // an intentional skip (bare-pack isolates globals/exports per module so we
-    // cannot receive an explicit signal from the sub-module).
-    console.log(\`[integration] \${relativeModulePath}: no brittle runner, 0/0 → skipped\`)
-    return { modulePath: relativeModulePath, skipped: true, summary: { total: 0, passed: 0, failed: 0 } }
+    // Module loaded cleanly but never touched the test framework: it neither
+    // ran a brittle test nor declared an intentional skip. Treat as 0/0 = FAIL
+    // so a silently broken addon load can't masquerade as a pass. Intentional
+    // skips MUST go through global.skipMobileTest, which registers a real skip.
+    console.log(\`[integration] \${relativeModulePath}: no brittle runner → 0/0 (fail)\`)
+    return { modulePath: relativeModulePath, skipped: false, summary: { total: 0, passed: 0, failed: 0, skipped: 0 } }
   }
-  
-  // Capture BOTH count and pass BEFORE running this module's tests
-  // (brittle runner is a singleton with cumulative counts across all modules)
-  const initialCount = runner.tests ? runner.tests.count : 0
-  const initialPass = runner.tests ? runner.tests.pass : 0
-  
+
   // Wait for tests to be registered and start
   let waited = 0
   const maxWait = 5000 // 5 seconds max to wait for tests to start
@@ -758,39 +786,44 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
     await new Promise(resolve => setTimeout(resolve, 50))
     waited += 50
   }
-  
+
   // Now wait for all tests to complete
   if (runner.next !== null || (runner.tests && runner.tests.count > initialCount)) {
     while (runner.next !== null) {
       await new Promise(resolve => setTimeout(resolve, 100))
     }
   }
-  
+
   const finalCount = runner.tests ? runner.tests.count : 0
   const finalPass = runner.tests ? runner.tests.pass : 0
-  
-  // Calculate PER-MODULE results (delta from before/after this module ran)
-  // This is critical because brittle's runner accumulates counts globally
-  const moduleTotal = finalCount - initialCount
-  const modulePassed = finalPass - initialPass
-  const moduleFailed = moduleTotal - modulePassed
+  const finalSkipped = runner.tests ? (runner.tests.skipped || 0) : 0
 
-  // For integration modules: if the module loaded without throwing but registered
-  // zero tests, treat it as an intentional skip. Real failures either throw
-  // (dlopen crash) or produce moduleFailed > 0. bare-pack's complete per-module
-  // isolation makes it impossible for the sub-module to signal back.
-  const skipped = moduleTotal === 0
+  // PER-MODULE deltas. brittle counts a skipped test as both count++ AND
+  // pass++, so real failures are (count - pass), and real passes are the pass
+  // delta minus the skips we tagged on the shared runner via skipMobileTest.
+  const moduleTotal = finalCount - initialCount
+  const moduleSkipped = finalSkipped - initialSkipped
+  const moduleFailed = moduleTotal - (finalPass - initialPass)
+  const modulePassed = moduleTotal - moduleSkipped - moduleFailed
+
+  // A module is an intentional skip ONLY if it registered tests and every one
+  // of them was a skip (no real pass, no fail). A module that registered no
+  // tests at all (moduleTotal === 0) is NOT a skip — it is a 0/0 FAIL.
+  const skipped = moduleTotal > 0 && moduleSkipped === moduleTotal && moduleFailed === 0
   if (skipped) {
-    console.log(\`[integration] \${relativeModulePath}: 0 tests registered → skipped\`)
+    console.log(\`[integration] \${relativeModulePath}: \${moduleSkipped}/\${moduleTotal} skipped → skipped\`)
+  } else if (moduleTotal === 0) {
+    console.log(\`[integration] \${relativeModulePath}: 0 tests registered → 0/0 (fail)\`)
   }
 
-  return { 
+  return {
     modulePath: relativeModulePath,
     skipped,
     summary: {
       total: moduleTotal,
       passed: modulePassed,
-      failed: moduleFailed
+      failed: moduleFailed,
+      skipped: moduleSkipped
     }
   }
 }
@@ -876,9 +909,11 @@ async function handleRunTest(req) {
             // Handle result with summary
             const { summary } = result
             const allPassed = !!summary && summary.total > 0 && summary.failed === 0
-            // Only honor skip if the test function explicitly returned { skipped: true }.
-            // An inferred total===0 without explicit skip is a FAIL (catches async
-            // addon-load crashes like dlopen failures that resolve cleanly with 0/0).
+            // Only honor skip when the result explicitly flags it (set by
+            // loadBundledIntegrationModule only when every registered test was an
+            // intentional skip via global.skipMobileTest). A 0/0 with no explicit
+            // skip stays a FAIL, catching async addon-load crashes (e.g. a dlopen
+            // failure that resolves cleanly having registered no tests).
             const skipped = !!result.skipped
 
             req.reply(JSON.stringify({

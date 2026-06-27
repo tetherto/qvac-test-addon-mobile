@@ -88,8 +88,9 @@ describe('testFilter matching', () => {
 })
 
 // --- Backend result evaluation (mirrors handleRunTest in build-test-app.js) ---
-// The backend only sets skipped=true if the test function explicitly returned
-// { skipped: true }. An inferred total===0 without explicit skip is a FAIL.
+// `skipped` is set by loadBundledIntegrationModule only when every registered
+// test was an intentional skip (via global.skipMobileTest). A 0/0 with no
+// explicit skip is a FAIL.
 
 function evaluateTestResult(result) {
     const { summary } = result
@@ -117,12 +118,12 @@ describe('zero-subtest detection (0/0 = FAIL, explicit skip = PASS)', () => {
         assert.equal(r.skipped, false)
     })
 
-    it('marks as skipped ONLY when test function explicitly returns skipped:true', () => {
+    it('an intentional skip is green AND flagged skipped (registers a real skip → total>0)', () => {
         const r = evaluateTestResult({
-            summary: { total: 0, passed: 0, failed: 0 },
+            summary: { total: 1, passed: 0, failed: 0, skipped: 1 },
             skipped: true
         })
-        assert.equal(r.success, false)
+        assert.equal(r.success, true)
         assert.equal(r.skipped, true)
     })
 
@@ -145,13 +146,113 @@ describe('zero-subtest detection (0/0 = FAIL, explicit skip = PASS)', () => {
     })
 })
 
+// --- Per-module counting (mirrors loadBundledIntegrationModule deltas) ---
+// brittle records a skip as count++ AND pass++, so real failures are
+// (count - pass) and real passes are the pass delta minus the tagged skips.
+// A module is a skip ONLY if it registered tests and every one was a skip; a
+// module that registered nothing (total 0, incl. no runner) is a 0/0 FAIL.
+
+function computeModuleResult(initial, final, hadRunner = true) {
+    if (!hadRunner) {
+        return { skipped: false, summary: { total: 0, passed: 0, failed: 0, skipped: 0 } }
+    }
+    const total = final.count - initial.count
+    const skipped = (final.skipped || 0) - (initial.skipped || 0)
+    const failed = total - (final.pass - initial.pass)
+    const passed = total - skipped - failed
+    const isSkip = total > 0 && skipped === total && failed === 0
+    return { skipped: isSkip, summary: { total, passed, failed, skipped } }
+}
+
+describe('per-module counting + skip-vs-crash distinction', () => {
+    const zero = { count: 0, pass: 0, skipped: 0 }
+
+    it('all real passes → PASS, not skipped', () => {
+        const r = computeModuleResult(zero, { count: 3, pass: 3, skipped: 0 })
+        assert.deepEqual(r.summary, { total: 3, passed: 3, failed: 0, skipped: 0 })
+        assert.equal(r.skipped, false)
+    })
+
+    it('real failure present → failed > 0, not skipped', () => {
+        const r = computeModuleResult(zero, { count: 3, pass: 1, skipped: 0 })
+        assert.equal(r.summary.failed, 2)
+        assert.equal(r.summary.passed, 1)
+        assert.equal(r.skipped, false)
+    })
+
+    it('all intentional skips → reported as skipped (total>0)', () => {
+        const r = computeModuleResult(zero, { count: 2, pass: 2, skipped: 2 })
+        assert.deepEqual(r.summary, { total: 2, passed: 0, failed: 0, skipped: 2 })
+        assert.equal(r.skipped, true)
+    })
+
+    it('mix of pass + skip → PASS (not a whole-module skip), skip counted', () => {
+        const r = computeModuleResult(zero, { count: 3, pass: 3, skipped: 1 })
+        assert.deepEqual(r.summary, { total: 3, passed: 2, failed: 0, skipped: 1 })
+        assert.equal(r.skipped, false)
+    })
+
+    it('mix of fail + skip → failure dominates (not skipped)', () => {
+        const r = computeModuleResult(zero, { count: 3, pass: 2, skipped: 1 })
+        assert.equal(r.summary.failed, 1)
+        assert.equal(r.summary.skipped, 1)
+        assert.equal(r.summary.passed, 1)
+        assert.equal(r.skipped, false)
+    })
+
+    it('SAFETY NET: no brittle runner → 0/0 FAIL (silent addon-load crash)', () => {
+        const r = computeModuleResult(zero, zero, false)
+        assert.deepEqual(r.summary, { total: 0, passed: 0, failed: 0, skipped: 0 })
+        assert.equal(r.skipped, false)
+    })
+
+    it('SAFETY NET: runner exists but module registered nothing → 0/0 FAIL', () => {
+        const r = computeModuleResult({ count: 5, pass: 5, skipped: 0 }, { count: 5, pass: 5, skipped: 0 })
+        assert.equal(r.summary.total, 0)
+        assert.equal(r.skipped, false)
+    })
+
+    it('handles the shared-singleton runner: a skip in a later module', () => {
+        // earlier modules already ran 5 passing tests + 1 skip
+        const r = computeModuleResult(
+            { count: 6, pass: 6, skipped: 1 },
+            { count: 7, pass: 7, skipped: 2 }
+        )
+        assert.deepEqual(r.summary, { total: 1, passed: 0, failed: 0, skipped: 1 })
+        assert.equal(r.skipped, true)
+    })
+
+    it('classifies a whole-module skip as SKIP on screen', () => {
+        const r = computeModuleResult(zero, { count: 1, pass: 1, skipped: 1 })
+        const display = classifyDisplayResult({
+            success: r.summary.total > 0 && r.summary.failed === 0,
+            skipped: r.skipped,
+            summary: r.summary
+        })
+        assert.equal(display, 'SKIP')
+    })
+
+    it('classifies a genuine 0/0 as FAIL_ZERO on screen', () => {
+        const r = computeModuleResult(zero, zero, false)
+        const display = classifyDisplayResult({
+            success: r.summary.total > 0 && r.summary.failed === 0,
+            skipped: r.skipped,
+            summary: r.summary
+        })
+        assert.equal(display, 'FAIL_ZERO')
+    })
+})
+
 // --- App-side result display logic (mirrors app/index.js) ---
 
 function classifyDisplayResult(result) {
     const { summary } = result
-    if (summary && result.success && summary.total > 0) return 'PASS'
+    // Skip is checked FIRST: an intentional skip now registers a real (skipped)
+    // test, so summary.total > 0 and success is true — the PASS branch would
+    // otherwise swallow it.
     if (result.skipped) return 'SKIP'
-    if (result.error || (!result.skipped && summary && (summary.total ?? 0) === 0)) return 'FAIL_ZERO'
+    if (summary && result.success && summary.total > 0) return 'PASS'
+    if (result.error || (summary && (summary.total ?? 0) === 0)) return 'FAIL_ZERO'
     return 'FAIL'
 }
 
@@ -163,10 +264,10 @@ describe('app result display classification', () => {
         }), 'PASS')
     })
 
-    it('shows SKIP only when test explicitly signalled skipped:true', () => {
+    it('shows SKIP for an intentional skip (registers a real skip → total>0, success)', () => {
         assert.equal(classifyDisplayResult({
-            success: false, skipped: true,
-            summary: { total: 0, passed: 0, failed: 0 }
+            success: true, skipped: true,
+            summary: { total: 1, passed: 0, failed: 0, skipped: 1 }
         }), 'SKIP')
     })
 
@@ -236,11 +337,12 @@ describe('sharded CI scenario', () => {
         assert.equal(r.skipped, false)
     })
 
-    it('selected test with explicit skip signal = SKIP', () => {
+    it('selected test that is intentionally skipped = SKIP (green, total>0)', () => {
         const r = evaluateTestResult({
-            summary: { total: 0, passed: 0, failed: 0 },
+            summary: { total: 1, passed: 0, failed: 0, skipped: 1 },
             skipped: true
         })
+        assert.equal(r.success, true)
         assert.equal(r.skipped, true)
     })
 
