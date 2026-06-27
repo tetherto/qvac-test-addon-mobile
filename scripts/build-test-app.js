@@ -669,6 +669,38 @@ function logRun(testName, stage, detail) {
 ensureProcess()
 
 // ============================================
+// ASYNC-CRASH GUARD
+// ============================================
+// An addon-load failure (e.g. a dlopen error) can surface as an ASYNC
+// unhandledRejection rather than a thrown error, leaving the test function to
+// resolve cleanly. Without this guard such a crash would never reach the RPC
+// reply. We record any unhandled async error and, if it happens while a test is
+// running, fail that test — belt-and-suspenders alongside the 0/0 = FAIL rule.
+// The record is reset before each test so a crash can't bleed across tests.
+let _activeTest = null
+let _asyncCrash = null
+function _recordAsyncCrash (kind, err) {
+  const message = err && err.message ? err.message : String(err)
+  _asyncCrash = { kind, message }
+  console.error(\`[backend] \${kind}\${_activeTest ? \` during '\${_activeTest}'\` : ''}: \${message}\`)
+  if (err && err.stack) console.error(err.stack)
+}
+try {
+  if (globalThis.process && typeof globalThis.process.on === 'function') {
+    globalThis.process.on('unhandledRejection', (reason) => _recordAsyncCrash('unhandledRejection', reason))
+    globalThis.process.on('uncaughtException', (err) => _recordAsyncCrash('uncaughtException', err))
+  }
+} catch (e) {
+  console.warn('[backend] could not install process async-crash handlers:', e && e.message)
+}
+try {
+  if (typeof Bare !== 'undefined' && typeof Bare.on === 'function') {
+    Bare.on('unhandledRejection', (reason) => _recordAsyncCrash('unhandledRejection', reason))
+    Bare.on('uncaughtException', (err) => _recordAsyncCrash('uncaughtException', err))
+  }
+} catch (e) { /* Bare global may be unavailable in this runtime */ }
+
+// ============================================
 // STATIC INIT FUNCTIONALITY
 // ============================================
 // Global dirPath variable used by test functions
@@ -899,13 +931,32 @@ async function handleRunTest(req) {
             processedPreTestData = Buffer.from(preTestData.data)
         }
         
+        // Arm the async-crash guard for this test (see ASYNC-CRASH GUARD above).
+        _asyncCrash = null
+        _activeTest = testName
         try {
             // Pass runtime context along with any pre-test payload to the test function
             const startedAt = Date.now()
             const result = await testFunctionMap[testName](dirPath, getAssetPath, processedPreTestData)
+            // Let any pending microtask-queued async rejection (e.g. an addon
+            // dlopen failure) surface before we decide pass/fail.
+            await new Promise(resolve => setTimeout(resolve, 0))
             const duration = Date.now() - startedAt
             logRun(testName, 'end', \`duration=\${duration}ms\`)
-            
+
+            // An unhandled async error during this test is a FAIL even if the
+            // test function resolved cleanly (the addon-load-crash scenario).
+            if (_asyncCrash) {
+                logRun(testName, 'error', \`async \${_asyncCrash.kind}: \${_asyncCrash.message}\`)
+                req.reply(JSON.stringify({
+                    success: false,
+                    testName,
+                    error: \`async \${_asyncCrash.kind}: \${_asyncCrash.message}\`,
+                    duration
+                }))
+                return
+            }
+
             // Handle result with summary
             const { summary } = result
             const allPassed = !!summary && summary.total > 0 && summary.failed === 0
@@ -933,6 +984,9 @@ async function handleRunTest(req) {
                 stack: error.stack
             }))
         } finally {
+            // Disarm the async-crash guard so a later async rejection that fires
+            // between tests isn't misattributed to the test that just finished.
+            _activeTest = null
             // Re-initialize global C++ logger in case the test called releaseLogger()
             _initNativeLogger()
         }

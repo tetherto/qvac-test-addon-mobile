@@ -99,6 +99,49 @@ function evaluateTestResult(result) {
     return { success: allPassed, skipped }
 }
 
+// Mirrors handleRunTest's async-crash guard: an unhandled async error recorded
+// while the test was running is a FAIL, even if the test function resolved
+// cleanly (the dlopen-as-async-unhandledRejection scenario from PR #47).
+function evaluateRunOutcome(result, asyncCrash) {
+    if (asyncCrash) {
+        return { success: false, error: `async ${asyncCrash.kind}: ${asyncCrash.message}` }
+    }
+    return evaluateTestResult(result)
+}
+
+describe('async-crash guard (addon-load failure that resolves cleanly)', () => {
+    it('FAILS a clean 0/0 when an async unhandledRejection fired during the test', () => {
+        const r = evaluateRunOutcome(
+            { summary: { total: 0, passed: 0, failed: 0 } },
+            { kind: 'unhandledRejection', message: 'dlopen: libtts.so not found' }
+        )
+        assert.equal(r.success, false)
+        assert.match(r.error, /unhandledRejection/)
+    })
+
+    it('FAILS even a clean PASS when an async crash fired during the test', () => {
+        const r = evaluateRunOutcome(
+            { summary: { total: 3, passed: 3, failed: 0 } },
+            { kind: 'uncaughtException', message: 'boom' }
+        )
+        assert.equal(r.success, false)
+    })
+
+    it('passes normally when no async crash fired', () => {
+        const r = evaluateRunOutcome({ summary: { total: 3, passed: 3, failed: 0 } }, null)
+        assert.equal(r.success, true)
+    })
+
+    it('still honours an intentional skip when no async crash fired', () => {
+        const r = evaluateRunOutcome(
+            { summary: { total: 1, passed: 0, failed: 0, skipped: 1 }, skipped: true },
+            null
+        )
+        assert.equal(r.success, true)
+        assert.equal(r.skipped, true)
+    })
+})
+
 describe('zero-subtest detection (0/0 = FAIL, explicit skip = PASS)', () => {
     it('passes when total > 0 and failed === 0', () => {
         const r = evaluateTestResult({ summary: { total: 5, passed: 5, failed: 0 } })
