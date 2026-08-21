@@ -384,7 +384,7 @@ jobs:
             
             The following addons are tested for compatibility:
             - \`@qvac/llm-llamacpp\` - LLM inference addon
-            - \`@qvac/transcription-whispercpp\` - Transcription addon
+            - \`@qvac/asr-ggml\` - Automatic speech recognition addon
             
             ---
             *To add more addons to this check, update \`.github/addon-registry.json\`*
