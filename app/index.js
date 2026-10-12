@@ -93,15 +93,15 @@ export default function App() {
             if (req.command === LOG) {
                 try {
                     const text = Buffer.from(req.data).toString('utf8')
-                    const { level, msg } = JSON.parse(text)
-                    const fn = console[level] || console.log
-                    fn('[Bare]', msg)
-                    _appendLog(`[${level}] ${msg}`)
+                    for (const { level, msg } of JSON.parse(text)) {
+                        const fn = console[level] || console.log
+                        fn('[Bare]', msg)
+                        _appendLog(`[${level}] ${msg}`)
+                    }
                 } catch (e) {
                     console.log('[Bare] (parse error)', e.message)
                     _appendLog(`[parse-error] ${e.message}`)
                 }
-                try { req.reply('') } catch (e) {}
             }
         }
     })

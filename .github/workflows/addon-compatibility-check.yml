@@ -35,8 +35,16 @@ jobs:
         with:
           node-version: 'lts/*'
 
+      - name: Install unit test dependencies
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts --prefix "$RUNNER_TEMP/unit-deps" \
+            "bare-rpc@$(node -p "require('./package.json').dependencies['bare-rpc']")" \
+            "b4a@$(node -p "require('./package.json').dependencies.b4a")"
+
       - name: Run unit tests
         run: npm test
+        env:
+          NODE_PATH: ${{ runner.temp }}/unit-deps/node_modules
 
   # Job 1: Load the addon registry and prepare test matrix
   load-registry:
