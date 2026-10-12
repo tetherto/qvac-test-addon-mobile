@@ -892,11 +892,6 @@ async function handleRunTest(req) {
 
 // Initialize RPC server
 const rpc = new RPC(BareKit.IPC, (req) => {
-    // Flush queued console output first so it reaches React Native ahead of the reply
-    if (typeof req.reply === 'function') {
-      const reply = req.reply.bind(req)
-      req.reply = (...args) => { _flushLogs(); return reply(...args) }
-    }
     switch (req.command) {
         case INIT:
             handleInit(req)
