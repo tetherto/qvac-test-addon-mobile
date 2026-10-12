@@ -645,7 +645,7 @@ _initNativeLogger()` : `
 function _initNativeLogger () {}` // no-op for addons without native logging
 
   return `const { INIT, RUN_TEST } = require('./api.cjs')
-const RPC = require('./rpc-framing.cjs')(require('bare-rpc'))
+const RPC = require('bare-rpc')
 const fs = require('bare-fs')
 const path = require('bare-path')
 const ensureProcess = () => {

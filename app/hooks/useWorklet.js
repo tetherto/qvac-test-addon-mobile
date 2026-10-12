@@ -1,10 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { Worklet } from "react-native-bare-kit";
 import { Asset } from "expo-asset";
-import bareRpc from "bare-rpc";
-import applyIterativeFraming from "../../backend/rpc-framing.cjs";
-
-const RPC = applyIterativeFraming(bareRpc);
+import RPC from "bare-rpc";
 
 const DEFAULT_CALLBACK = () => {
   // noop
