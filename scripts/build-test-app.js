@@ -904,8 +904,26 @@ const rpc = new RPC(BareKit.IPC, (req) => {
     }
 })
 
-// Forward Bare console output to React Native via RPC
+// Forward Bare console output to React Native in batches of one-way events.
+// A request per line made React Native send back a reply per line, so a native
+// log burst flooded the channel with thousands of tiny frames.
 const { LOG } = require('./api.cjs')
+const LOG_FLUSH_MS = 50
+const LOG_FLUSH_BYTES = 64 * 1024
+let _logQueue = []
+let _logBytes = 0
+let _logTimer = null
+function _flushLogs () {
+  if (_logTimer !== null) {
+    clearTimeout(_logTimer)
+    _logTimer = null
+  }
+  if (_logQueue.length === 0) return
+  const batch = _logQueue
+  _logQueue = []
+  _logBytes = 0
+  try { rpc.event(LOG).send(JSON.stringify(batch)) } catch (e) {}
+}
 const _console = {
   log: console.log.bind(console),
   warn: console.warn.bind(console),
@@ -919,8 +937,10 @@ function _fwd (level, args) {
       if (typeof a === 'string') return a
       try { return JSON.stringify(a) } catch (e) { return String(a) }
     }).join(' ')
-    const r = rpc.request(LOG)
-    r.send(JSON.stringify({ level, msg }))
+    _logQueue.push({ level, msg })
+    _logBytes += msg.length
+    if (_logBytes >= LOG_FLUSH_BYTES) _flushLogs()
+    else if (_logTimer === null) _logTimer = setTimeout(_flushLogs, LOG_FLUSH_MS)
   } catch (e) {}
 }
 console.log = (...a) => { _console.log(...a); _fwd('log', a) }
