@@ -98,7 +98,7 @@ jobs:
               if [ "$platform" == "Android" ]; then
                 RUNNER="ubuntu-latest"
               else
-                RUNNER="macos-14"
+                RUNNER="macos-15"
               fi
               
               ITEM=$(jq -n \
