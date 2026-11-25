@@ -645,6 +645,8 @@ _initNativeLogger()` : `
 function _initNativeLogger () {}` // no-op for addons without native logging
 
   return `const { INIT, RUN_TEST } = require('./api.cjs')
+const fatalErrors = require('./fatal-errors.cjs')
+fatalErrors.install(globalThis.Bare)
 const RPC = require('bare-rpc')
 const fs = require('bare-fs')
 const path = require('bare-path')
@@ -729,6 +731,8 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
     throw new Error(\`Integration module not found: \${relativeModulePath}\`)
   }
   
+  const fatalMark = fatalErrors.mark()
+
   // Load the test module (this registers tests with brittle and creates the runner)
   loader(options)
   
@@ -737,7 +741,7 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   
   if (!runner) {
     // No brittle runner - module loaded but doesn't use brittle
-    return { modulePath: relativeModulePath, summary: { total: 0, passed: 0, failed: 0 } }
+    return { modulePath: relativeModulePath, summary: fatalErrors.applyTo({ total: 0, passed: 0, failed: 0 }, fatalMark) }
   }
   
   // Capture BOTH count and pass BEFORE running this module's tests
@@ -769,14 +773,17 @@ async function loadBundledIntegrationModule(relativeModulePath, options = {}) {
   const modulePassed = finalPass - initialPass
   const moduleFailed = moduleTotal - modulePassed
   
+  // Let a rejection from the last test's final tick reach the handler.
+  await new Promise(resolve => setTimeout(resolve, 0))
+
   // Return per-module summary (not cumulative global counts)
   return { 
     modulePath: relativeModulePath,
-    summary: {
+    summary: fatalErrors.applyTo({
       total: moduleTotal,
       passed: modulePassed,
       failed: moduleFailed
-    }
+    }, fatalMark)
   }
 }
 
